@@ -1,0 +1,39 @@
+# Postgres-backed pool-daemon config used by deploy/docker-compose.yml.
+
+[derive]
+
+[derive.secret]
+kind = "env"
+var = "LADON_MNEMONIC"
+
+[[derive.chains]]
+name = "evm"
+
+[[derive.chains]]
+name = "solana"
+solana_mode = "cold-export"
+
+[[derive.chains]]
+name = "btc"
+network = "bitcoin"
+
+[pool]
+target = 10
+threshold = 5
+batch = 5
+interval_secs = 10
+
+[database.postgres]
+url_env = "DATABASE_URL"
+pool_size = 5
+
+[database.postgres.table]
+name = "derived_addresses"
+
+[database.postgres.table.columns]
+id = "id"
+chain = "chain"
+address = "address"
+path = "path"
+index = "index"
+created_at = "created_at"

@@ -142,5 +142,5 @@ fn cli_rejects_unknown_options() {
         .output()
         .unwrap();
     assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("unknown derive option"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("unexpected argument '--wat'"));
 }

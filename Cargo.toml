@@ -1,33 +1,55 @@
 [package]
-name = "ladon"
-version = "0.1.1"
-edition = "2024"
-authors = ["Melon Ask"]
-description = "Fast multi-chain HD wallet CLI: EVM, Bitcoin, Solana"
-license = "MIT"
-repository = "https://github.com/melonask/ladon"
-homepage = "https://github.com/melonask/ladon"
-keywords = ["crypto", "wallet", "hd-wallet", "mnemonic", "solana"]
-categories = ["command-line-utilities", "cryptography"]
+name        = "ladon"
+version     = "0.2.0"
+edition     = "2024"
+authors     = ["Melon Ask"]
+description = "Fast multi-chain HD wallet CLI and address-pool daemon: EVM, Bitcoin, Solana"
+license     = "MIT"
+repository  = "https://github.com/melonask/ladon"
+homepage    = "https://github.com/melonask/ladon"
+keywords    = ["crypto", "hd-wallet", "ethereum", "bitcoin", "solana"]
+categories  = ["command-line-utilities", "cryptography"]
 rust-version = "1.96"
 
+# ── Crypto / HD wallet ──────────────────────────────────────────────────────────
 [dependencies]
-bip39      = { version = "2.2", features = ["rand"] }
-bitcoin    = { version = "0.32", features = ["std", "rand"], default-features = false }
+bip39         = { version = "2.2",  features = ["rand"] }
+bitcoin       = { version = "0.32", features = ["std", "rand"], default-features = false }
 ed25519-dalek = "2.2"
-solana-pubkey = { version = "4.2", features = ["curve25519", "sha2"] }
-tiny-keccak = { version = "2.0", features = ["keccak"] }
-hmac        = "0.13"
-sha2        = "0.11"
-aes-gcm     = "0.10"
-scrypt      = "0.12"
-anyhow      = "1.0"
-serde       = { version = "1.0", features = ["derive"] }
-serde_json  = "1.0"
-hex         = "0.4"
-base64      = "0.22"
-rand        = "0.10"
-zeroize     = { version = "1.8", features = ["derive"] }
+solana-pubkey = { version = "4.2",  features = ["curve25519", "sha2"] }
+tiny-keccak   = { version = "2.0",  features = ["keccak"] }
+hmac          = "0.13"
+sha2          = "0.11"
+aes-gcm       = "0.10"
+scrypt        = "0.12"
+hex           = "0.4"
+base64        = "0.22"
+rand          = "0.8"
+zeroize       = { version = "1.8", features = ["derive"] }
+
+# ── Serialisation ───────────────────────────────────────────────────────────────
+serde      = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml       = "0.8"
+
+# ── CLI ─────────────────────────────────────────────────────────────────────────
+clap = { version = "4.5", features = ["derive", "env"] }
+
+# ── Async runtime ───────────────────────────────────────────────────────────────
+tokio = { version = "1.44", features = ["full"] }
+
+# ── Database (feature-gated so the lib stays lean) ──────────────────────────────
+sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "any", "sqlite", "postgres", "uuid", "chrono"], default-features = false }
+ulid = "1.2"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+
+# ── Observability ───────────────────────────────────────────────────────────────
+tracing            = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+# ── Utilities ───────────────────────────────────────────────────────────────────
+anyhow   = "1.0"
+thiserror = "2.0"
 
 [lib]
 name = "ladon"
@@ -46,3 +68,4 @@ panic         = "abort"
 
 [dev-dependencies]
 serde_json = "1.0"
+tokio      = { version = "1.44", features = ["full"] }

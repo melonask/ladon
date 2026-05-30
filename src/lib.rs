@@ -16,22 +16,22 @@ pub const HARDENED: u32 = 0x8000_0000;
 
 // ── Public types ─────────────────────────────────────────────────────────────
 
-/// Parameters for [`derive`]. All fields default to sensible values.
+/// Derivation parameters for [`derive`]. All fields have sensible defaults.
 #[derive(Clone, Debug, Default)]
 pub struct Params {
     pub chain: String,
     pub mnemonic: Option<String>,
     pub passphrase: String,
     pub index: Option<u32>,
-    /// Comma-separated index/range override list, e.g. `"0,5,22-44"`.
-    /// Supersedes `index`/`num`.
+    /// Comma-separated indexes / inclusive ranges, e.g. `"0,5,22-44"`.
+    /// Supersedes `index` and `num`.
     pub indexes: Option<String>,
     pub account: u32,
     pub change: u32,
     pub num: u32,
     /// Bitcoin address network: `bitcoin`, `testnet`, `signet`, or `regtest`.
     pub network: String,
-    /// Word count for mnemonic generation: `12` or `24`.
+    /// Mnemonic word count for generation: `12` or `24`.
     pub strength: u32,
     pub hw_sim: bool,
     pub xpub: Option<String>,
@@ -43,7 +43,7 @@ pub struct Params {
     pub program_id: String,
 }
 
-/// A single derived key/address tuple.
+/// A single derived key / address tuple.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct KeyInfo {
     pub index: u32,
@@ -90,14 +90,11 @@ pub struct EncryptedWallet {
 
 // ── Top-level API ─────────────────────────────────────────────────────────────
 
-/// Generate one or more keys/addresses.
-/// This is the single entry-point for programmatic use.
+/// Generate one or more keys / addresses. Single entry-point for programmatic use.
 pub fn derive(p: Params) -> Result<WalletOutput> {
-    let chain = p.chain.to_lowercase();
-    let chain = if chain.is_empty() {
-        "evm".to_string()
-    } else {
-        chain
+    let chain = {
+        let s = p.chain.to_lowercase();
+        if s.is_empty() { "evm".to_string() } else { s }
     };
 
     let num = if p.num == 0 { 1 } else { p.num };
@@ -145,7 +142,7 @@ pub fn derive(p: Params) -> Result<WalletOutput> {
 
 // ── Path helpers ──────────────────────────────────────────────────────────────
 
-/// Return the default BIP44 derivation base path for `chain`.
+/// Return the default BIP-44 derivation base path for `chain`.
 pub fn default_path(chain: &str, account: u32, change: u32, _hw_sim: bool) -> String {
     match chain {
         "evm" | "ethereum" => format!("m/44'/60'/{account}'/{change}/0"),
@@ -158,7 +155,6 @@ pub fn default_path(chain: &str, account: u32, change: u32, _hw_sim: bool) -> St
 /// Build a child derivation path from `base` and `index` for `chain`.
 pub fn child_path(base: &str, index: u32, chain: &str) -> String {
     if is_ed25519(chain) {
-        // All segments must be hardened for SLIP-0010.
         let normalised: String = base
             .split('/')
             .map(|seg| {
@@ -177,7 +173,7 @@ pub fn child_path(base: &str, index: u32, chain: &str) -> String {
     }
 }
 
-/// Parse a derivation path string into a sequence of BIP32 child indexes.
+/// Parse a derivation-path string into a sequence of BIP-32 child indexes.
 pub fn parse_path(path: &str) -> Result<Vec<u32>> {
     let trimmed = path
         .strip_prefix("m/")
@@ -209,7 +205,7 @@ pub fn parse_path(path: &str) -> Result<Vec<u32>> {
         .collect()
 }
 
-/// Parse a comma-separated index/range list into a `Vec<u32>`.
+/// Parse a comma-separated index / range list into a `Vec<u32>`.
 pub fn parse_indexes(s: &str) -> Result<Vec<u32>> {
     s.split(',')
         .flat_map(|raw| {
@@ -220,7 +216,7 @@ pub fn parse_indexes(s: &str) -> Result<Vec<u32>> {
 
             if let Some((start, end)) = token.split_once('-') {
                 let start = match start.trim().parse::<u32>() {
-                    Ok(start) => start,
+                    Ok(v) => v,
                     Err(_) => {
                         return vec![Err(anyhow::anyhow!(
                             "Invalid range start: '{}'",
@@ -229,13 +225,13 @@ pub fn parse_indexes(s: &str) -> Result<Vec<u32>> {
                     }
                 };
                 let end = match end.trim().parse::<u32>() {
-                    Ok(end) => end,
+                    Ok(v) => v,
                     Err(_) => {
                         return vec![Err(anyhow::anyhow!("Invalid range end: '{}'", end.trim()))];
                     }
                 };
                 if start > end {
-                    return vec![Err(anyhow::anyhow!("Invalid descending range: '{token}'"))];
+                    return vec![Err(anyhow::anyhow!("Descending range: '{token}'"))];
                 }
                 return (start..=end).map(Ok).collect();
             }
@@ -307,7 +303,6 @@ pub fn derive_from_seed(
         keys,
     };
 
-    // Attach the account-level xpub.
     let account_base = base_path.trim_end_matches(|c: char| c.is_ascii_digit() || c == '/');
     if is_ed25519(chain) {
         if let Ok(idxs) = parse_path(account_base)
@@ -649,15 +644,15 @@ pub fn eth_address(pubkey_uncompressed: &[u8]) -> String {
 
 // ── Encryption / decryption ───────────────────────────────────────────────────
 
-/// Encrypt a UTF-8 string with AES-256-GCM, key derived via scrypt.
+/// Encrypt a UTF-8 string with AES-256-GCM (key derived via scrypt).
 /// Returns a JSON-serialised [`EncryptedWallet`].
 pub fn encrypt_data(data: &str, password: &str) -> Result<String> {
     use aes_gcm::{Aes256Gcm, KeyInit, aead::Aead};
     use base64::Engine;
-    use rand::Rng;
+    use rand::RngCore;
     use scrypt::scrypt;
 
-    let mut rng = rand::rng();
+    let mut rng = rand::thread_rng();
     let mut salt = [0u8; 16];
     rng.fill_bytes(&mut salt);
     let mut nonce_bytes = [0u8; 12];
@@ -734,12 +729,11 @@ fn bitcoin_network(network: &str) -> Network {
 fn network_kind(network: Network) -> NetworkKind {
     match network {
         Network::Bitcoin => NetworkKind::Main,
-        Network::Testnet | Network::Signet | Network::Regtest => NetworkKind::Test,
         _ => NetworkKind::Test,
     }
 }
 
-/// Convert an explicit/implicit index specification into a concrete `Vec<u32>`.
+/// Resolve an index specification into a concrete `Vec<u32>`.
 fn resolve_indices(indexes: &Option<String>, specific: Option<u32>, num: u32) -> Result<Vec<u32>> {
     if let Some(s) = indexes {
         return parse_indexes(s);
@@ -750,7 +744,7 @@ fn resolve_indices(indexes: &Option<String>, specific: Option<u32>, num: u32) ->
     Ok((0..num).collect())
 }
 
-/// Build the Solana key-info tuple for both `gen_solana` and `gen_from_xpriv`.
+/// Assemble Solana key-info fields based on the operating mode.
 fn solana_key_info(
     idx: u32,
     pubkey: &Pubkey,
@@ -786,7 +780,7 @@ fn solana_key_info(
     }
 }
 
-/// Parse an xpub from standard base58 BIP32 or fallback hex `chain_code(32) || pubkey(33)`.
+/// Parse an xpub from standard base58 BIP-32 or fallback hex `chain_code(32) || pubkey(33)`.
 fn parse_xpub(s: &str) -> Result<Xpub> {
     if let Ok(x) = Xpub::from_str(s) {
         return Ok(x);

@@ -1,0 +1,74 @@
+# ── ladon Config.toml ──────────────────────────────────────────────────────────
+# Every setting has a default; uncomment and adjust only what you need.
+
+# ── Derivation ──────────────────────────────────────────────────────────────────
+[derive]
+
+# How to obtain the master secret.  Supported "kind" values:
+#   "env"        — mnemonic from an environment variable
+#   "xpriv_env"  — raw hex xpriv from an environment variable
+#   "file"       — mnemonic read from a plain-text file
+[derive.secret]
+kind = "env"
+var  = "LADON_MNEMONIC"
+# Optional: BIP-39 passphrase read from a separate env var
+# passphrase_var = "LADON_PASSPHRASE"
+
+# One [[derive.chains]] section per blockchain.
+[[derive.chains]]
+name    = "evm"
+account = 0
+change  = 0
+
+[[derive.chains]]
+name        = "solana"
+account     = 0
+change      = 0
+solana_mode = "cold-export"   # "full" | "cold-export" | "hsm-sim" | "pda"
+# program_id = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+
+# [[derive.chains]]
+# name    = "btc"
+# account = 0
+# change  = 0
+# network = "bitcoin"   # "bitcoin" | "testnet" | "signet" | "regtest"
+
+# ── Pool daemon ─────────────────────────────────────────────────────────────────
+[pool]
+target        = 1000   # keep this many addresses in the pool at all times
+threshold     = 200    # start refilling when the count drops below this
+batch         = 100    # derive this many at a time
+interval_secs = 10     # poll the database every N seconds
+
+# ── Database — SQLite ───────────────────────────────────────────────────────────
+[database.sqlite]
+path = "data/addresses.db"
+
+[database.sqlite.table]
+name = "derived_addresses"
+
+[database.sqlite.table.columns]
+id         = "id"
+chain      = "chain"
+address    = "address"
+path       = "path"
+index      = "index"
+created_at = "created_at"
+
+# ── Database — Postgres (comment out the sqlite section above if using this) ────
+# [database.postgres]
+# url      = "postgres://user:password@localhost:5432/ladon"
+# # Alternatively, set the env var DATABASE_URL and omit `url` here.
+# # url_env  = "DATABASE_URL"
+# pool_size = 5
+#
+# [database.postgres.table]
+# name = "derived_addresses"
+#
+# [database.postgres.table.columns]
+# id         = "id"
+# chain      = "chain"
+# address    = "address"
+# path       = "path"
+# index      = "index"
+# created_at = "created_at"

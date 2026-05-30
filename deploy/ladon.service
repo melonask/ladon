@@ -1,0 +1,32 @@
+[Unit]
+Description=ladon address-pool daemon
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=ladon
+Group=ladon
+WorkingDirectory=/opt/ladon
+ExecStart=/usr/local/bin/ladon --config /etc/ladon/Config.toml pool
+
+# Restart automatically on failure.
+Restart=on-failure
+RestartSec=5
+
+# Keep secrets out of the unit file — load them from a protected env file.
+EnvironmentFile=/etc/ladon/env
+
+# Harden the process.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/ladon
+
+# Log via journald.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ladon
+
+[Install]
+WantedBy=multi-user.target

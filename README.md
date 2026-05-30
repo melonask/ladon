@@ -1,10 +1,10 @@
 # ladon
 
-<img align="right" src="https://raw.githubusercontent.com/melonask/ladon/refs/heads/main/logo.svg" alt="Fast, minimal, multi-chain HD wallet CLI and library — EVM, Bitcoin, Solana" width="120" />
+<img align="right" src="https://raw.githubusercontent.com/melonask/ladon/refs/heads/main/logo.svg" alt="Fast, minimal, multi-chain HD wallet CLI and library — EVM, Bitcoin, Solana" width="160" />
 
 > *Like the hundred-headed serpent of Greek myth, Ladon generates as many addresses as you need.*
 
-Fast, minimal, multi-chain HD wallet CLI and library — EVM, Bitcoin, Solana.
+Fast, minimal, multi-chain HD wallet CLI, library, and address-pool daemon — EVM, Bitcoin, Solana.
 
 ---
 
@@ -16,65 +16,164 @@ cargo install ladon
 
 ---
 
+## Modes
+
+ladon has three sub-commands:
+
+| Sub-command | Purpose |
+|-------------|---------|
+| `derive`    | Derive one or more addresses and print to stdout |
+| `decrypt`   | Decrypt an encrypted wallet file |
+| `pool`      | Run the address-pool daemon (requires `[database]` in config) |
+
+---
+
 ## CLI
+
+### Configuration file
+
+All settings live in `Config.toml` (or any path passed with `--config`/`-C`).
+Per-flag overrides are available on `derive` for ad-hoc use.
+
+```sh
+ladon --config /etc/ladon/Config.toml pool
+```
+
+See [Config.toml](./Config.toml) for a fully annotated example.
+
+---
 
 ### Derive
 
+Output goes to stdout; redirect it to whatever format you need:
+
 ```sh
-# EVM — 5 addresses from a fresh mnemonic
+# JSON (default) — pipe or redirect
 ladon derive --chain evm --num 5
+ladon derive --chain evm --num 20 > wallet.json
 
-# Bitcoin — import existing mnemonic
-ladon derive --chain btc --mnemonic "word1 word2 ... word12"
+# CSV
+ladon derive --chain evm --num 20 --format csv > wallet.csv
 
-# Solana — cold-export (addresses only, private keys hidden)
-ladon derive --chain solana --solana-mode cold-export --num 10
+# Plain text (one address per line)
+ladon derive --chain solana --num 10 --format text > addresses.txt
 
-# Solana — PDA mode
-ladon derive --chain solana --solana-mode pda --program-id <BASE58_PROGRAM_ID>
+# Encrypted output
+ladon derive --chain evm --num 5 --encrypt --password "secret" > wallet.enc
 
-# Specific indexes and inclusive ranges (overrides --index / --num)
-ladon derive --chain evm --indexes 0,5,22-44,55,66-109,12,11
+# Bitcoin from existing mnemonic
+ladon derive --chain btc --mnemonic "word1 ... word12"
 
-# From xpub (watch-only)
+# Specific indexes or ranges
+ladon derive --chain evm --indexes "0,5,22-44,55,66-109"
+
+# Watch-only from xpub
 ladon derive --chain evm --xpub xpub6C...
 
 # From xpriv
 ladon derive --chain evm --xpriv xprv9s...
-
-# Save to file (JSON)
-ladon derive --chain evm --num 20 --output wallet.json
-
-# Encrypt output
-ladon derive --chain evm --output wallet.enc --encrypt --password "mypassword"
 ```
 
 #### Key flags
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--chain` | `evm` | Target chain: `evm`, `btc`, `solana` |
-| `--num` | `1` | Number of addresses |
-| `--index` | — | Single specific index |
-| `--indexes` | — | Comma-separated indexes/ranges, e.g. `0,3,7-12` |
-| `--account` | `0` | BIP44 account |
-| `--change` | `0` | BIP44 change |
-| `--network` | `bitcoin` | Bitcoin network: `bitcoin`, `testnet`, `signet`, `regtest` |
-| `--passphrase` | `""` | BIP39 passphrase |
-| `--strength` | `12` | Mnemonic word count (`12` or `24`) |
+| `--chain` / `-c` | `evm` | `evm`, `btc`, `solana` |
+| `--num` / `-n` | `1` | Number of addresses |
+| `--index` / `-i` | — | Single specific index |
+| `--indexes` | — | Comma-separated indexes/ranges |
+| `--account` | `0` | BIP-44 account |
+| `--change` | `0` | BIP-44 change |
+| `--network` | `bitcoin` | Bitcoin network |
+| `--passphrase` | `""` | BIP-39 passphrase |
+| `--strength` / `-s` | `12` | Mnemonic word count |
 | `--solana-mode` | `full` | `full`, `cold-export`, `hsm-sim`, `pda` |
 | `--program-id` | — | Base58 program ID for PDA mode |
-| `--xpub` | — | Derive watch-only from xpub |
+| `--xpub` | — | Watch-only from xpub |
 | `--xpriv` | — | Derive from xpriv |
-| `--encrypt` | false | Encrypt output with a password |
+| `--format` / `-f` | `json` | `json`, `csv`, `text` |
+| `--encrypt` | false | Encrypt output |
 | `--password` | — | Encryption password |
-| `--output` | — | Save JSON/encrypted wallet to file |
 
 ### Decrypt
 
 ```sh
-ladon decrypt wallet.enc --password "mypassword"
-ladon decrypt wallet.enc --password "mypassword" --output wallet.json
+ladon decrypt wallet.enc --password "secret"
+ladon decrypt wallet.enc --password "secret" > wallet.json
+```
+
+---
+
+## Address-pool daemon
+
+The `pool` sub-command runs a long-lived service that:
+
+1. Connects to a SQLite or Postgres database.
+2. Polls the pool table on a configurable interval.
+3. Derives and inserts new addresses when the count drops below `[pool].threshold`.
+4. Keeps the total at `[pool].target` addresses per chain.
+
+Your application removes rows from the pool table as it assigns addresses to users.
+
+### Example Config.toml (pool mode)
+
+```toml
+[derive.secret]
+kind = "env"
+var  = "LADON_MNEMONIC"
+
+[[derive.chains]]
+name = "evm"
+
+[pool]
+target        = 1000
+threshold     = 200
+batch         = 100
+interval_secs = 10
+
+[database.sqlite]
+path = "data/addresses.db"
+
+[database.sqlite.table]
+name = "derived_addresses"
+
+[database.sqlite.table.columns]
+id         = "id"
+chain      = "chain"
+address    = "address"
+path       = "path"
+index      = "index"
+created_at = "created_at"
+```
+
+---
+
+## Docker
+
+```sh
+# Build and start the pool daemon with Postgres
+docker compose -f deploy/docker-compose.yml up -d
+```
+
+Set `LADON_MNEMONIC` and `DATABASE_URL` in the environment or in `deploy/.env`.
+The container uses `restart: unless-stopped` so it recovers automatically.
+
+---
+
+## Systemd (bare-metal)
+
+```sh
+sudo cp deploy/ladon.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now ladon
+```
+
+Store secrets in `/etc/ladon/env`:
+
+```
+LADON_MNEMONIC=word1 word2 ... word12
+DATABASE_URL=postgres://ladon:secret@localhost/ladon
+RUST_LOG=ladon=info
 ```
 
 ---
@@ -84,47 +183,14 @@ ladon decrypt wallet.enc --password "mypassword" --output wallet.json
 ```rust
 use ladon::{derive, decrypt_data, encrypt_data, Params, WalletOutput};
 
-// Generate EVM addresses
-let params = Params {
+let wallet: WalletOutput = derive(Params {
     chain: "evm".into(),
     num: 5,
     ..Default::default()
-};
-let wallet: WalletOutput = derive(params)?;
+})?;
 
 for key in &wallet.keys {
     println!("{}: {}", key.index, key.address);
-}
-
-// Encrypt / decrypt
-let json = serde_json::to_string(&wallet)?;
-let encrypted = encrypt_data(&json, "my-password")?;
-let decrypted = decrypt_data(&serde_json::from_str(&encrypted)?, "my-password")?;
-```
-
-### `Params` fields
-
-All fields have sensible defaults via `Default`. Only set what you need.
-
-```rust
-pub struct Params {
-    pub chain: String,           // "evm" | "btc" | "solana"
-    pub mnemonic: Option<String>,
-    pub passphrase: String,
-    pub index: Option<u32>,
-    pub indexes: Option<String>, // comma-separated indexes/ranges, e.g. "0,5,22-44"
-    pub account: u32,
-    pub change: u32,
-    pub num: u32,
-    pub network: String,         // Bitcoin only: "bitcoin" | "testnet" | "signet" | "regtest"
-    pub strength: u32,           // 12 or 24
-    pub hw_sim: bool,
-    pub xpub: Option<String>,
-    pub xpub_path: Option<String>,
-    pub xpriv: Option<String>,
-    pub xpriv_path: Option<String>,
-    pub solana_mode: String,     // "full" | "cold-export" | "hsm-sim" | "pda"
-    pub program_id: String,
 }
 ```
 
@@ -143,9 +209,12 @@ pub struct Params {
 ## Security notes
 
 - Private keys are **zeroized on drop**.
-- Use `--solana-mode cold-export` or `--encrypt` when storing output.
-- `--password` on the CLI exposes the password in shell history; prefer environment-specific secret handling for automation.
-- Ed25519 derivation follows **SLIP-0010** (all segments hardened).
+- Use `--solana-mode cold-export` or `--encrypt` when storing derive output.
+- `--password` on the CLI is visible in shell history; prefer environment-specific
+  secret management (`LADON_MNEMONIC`, vault agents, etc.) in automation.
+- Ed25519 derivation follows **SLIP-0010** (all path segments hardened).
+- In the pool daemon, the mnemonic is never written to disk — it lives only
+  in the process environment.
 
 ---
 

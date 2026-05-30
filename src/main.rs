@@ -1,134 +1,210 @@
-use anyhow::{Context, Result, bail};
-use ladon::{EncryptedWallet, Params, decrypt_data, derive, encrypt_data};
-use std::{env, fs, path::PathBuf};
+mod config;
+mod db;
+mod output;
+mod pool;
 
-fn main() -> Result<()> {
-    let mut args = env::args().skip(1);
-    match args.next().as_deref() {
-        Some("derive") => run_derive(parse_derive(args.collect())?),
-        Some("decrypt") => run_decrypt(parse_decrypt(args.collect())?),
-        _ => bail!(usage()),
-    }
+use anyhow::{Context, Result};
+use clap::{Parser, Subcommand};
+use ladon::{EncryptedWallet, Params, decrypt_data, derive, encrypt_data};
+use output::Format;
+use std::{fs, path::PathBuf};
+use tracing_subscriber::{EnvFilter, fmt};
+
+// ── CLI types ─────────────────────────────────────────────────────────────────
+
+/// Fast multi-chain HD wallet CLI and address-pool daemon.
+#[derive(Parser, Debug)]
+#[command(name = "ladon", version, about, long_about = None)]
+struct Cli {
+    /// Path to the TOML configuration file.
+    #[arg(long, short = 'C', value_name = "FILE", default_value = "Config.toml")]
+    config: PathBuf,
+
+    #[command(subcommand)]
+    cmd: Cmd,
 }
 
-#[derive(Debug, Default)]
+#[derive(Subcommand, Debug)]
+enum Cmd {
+    /// Derive addresses and write to stdout (redirect to file as needed).
+    Derive(DeriveArgs),
+
+    /// Decrypt an encrypted wallet file.
+    Decrypt(DecryptArgs),
+
+    /// Run the address-pool daemon (requires a config file with `[database]`).
+    Pool,
+}
+
+// ── derive sub-command ────────────────────────────────────────────────────────
+
+#[derive(Parser, Debug)]
 struct DeriveArgs {
-    params: Params,
+    /// Target chain: `evm`, `btc`, `solana`.
+    #[arg(long, short = 'c', default_value = "evm")]
+    chain: String,
+
+    /// BIP-39 mnemonic (12 or 24 words).
+    #[arg(long, short = 'm')]
+    mnemonic: Option<String>,
+
+    /// BIP-39 passphrase.
+    #[arg(long, default_value = "")]
+    passphrase: String,
+
+    /// Single derivation index.
+    #[arg(long, short = 'i')]
+    index: Option<u32>,
+
+    /// Comma-separated indexes / ranges, e.g. `0,3,7-12`.  Overrides `--index`/`--num`.
+    #[arg(long)]
+    indexes: Option<String>,
+
+    /// BIP-44 account.
+    #[arg(long, default_value_t = 0)]
+    account: u32,
+
+    /// BIP-44 change.
+    #[arg(long, default_value_t = 0)]
+    change: u32,
+
+    /// Number of addresses.
+    #[arg(long, short = 'n', default_value_t = 1)]
+    num: u32,
+
+    /// Bitcoin network: `bitcoin`, `testnet`, `signet`, `regtest`.
+    #[arg(long, default_value = "bitcoin")]
+    network: String,
+
+    /// Mnemonic word count for generation: `12` or `24`.
+    #[arg(long, short = 's', default_value_t = 12)]
+    strength: u32,
+
+    /// Watch-only derivation from an xpub.
+    #[arg(long)]
+    xpub: Option<String>,
+
+    /// Base path for xpub derivation.
+    #[arg(long)]
+    xpub_path: Option<String>,
+
+    /// Derive from xpriv.
+    #[arg(long)]
+    xpriv: Option<String>,
+
+    /// Base path for xpriv derivation.
+    #[arg(long)]
+    xpriv_path: Option<String>,
+
+    /// Solana mode: `full`, `cold-export`, `hsm-sim`, `pda`.
+    #[arg(long, default_value = "full")]
+    solana_mode: String,
+
+    /// Base58 program ID (PDA mode).
+    #[arg(long, default_value = "")]
+    program_id: String,
+
+    /// Output format (default: json; redirect stdout for file output).
+    #[arg(long, short = 'f', default_value = "json")]
+    format: Format,
+
+    /// Write output to a file instead of stdout.
+    #[arg(long, short = 'o')]
     output: Option<PathBuf>,
+
+    /// Encrypt the output with the given password.
+    #[arg(long)]
     encrypt: bool,
+
+    /// Encryption password (required when `--encrypt` is set).
+    #[arg(long)]
     password: Option<String>,
 }
 
-#[derive(Debug)]
+// ── decrypt sub-command ───────────────────────────────────────────────────────
+
+#[derive(Parser, Debug)]
 struct DecryptArgs {
+    /// Encrypted wallet file.
     input: PathBuf,
-    output: Option<PathBuf>,
+
+    /// Decryption password.
+    #[arg(long)]
     password: String,
 }
 
-fn parse_derive(args: Vec<String>) -> Result<DeriveArgs> {
-    let mut out = DeriveArgs::default();
-    out.params.chain = "evm".into();
-    out.params.solana_mode = "full".into();
-    out.params.strength = 12;
-    out.params.num = 1;
+// ── entry point ───────────────────────────────────────────────────────────────
 
-    let mut i = 0;
-    while i < args.len() {
-        match args[i].as_str() {
-            "-c" | "--chain" => out.params.chain = value(&args, &mut i)?.into(),
-            "-m" | "--mnemonic" => out.params.mnemonic = Some(value(&args, &mut i)?.into()),
-            "--passphrase" => out.params.passphrase = value(&args, &mut i)?.into(),
-            "-i" | "--index" => out.params.index = Some(value(&args, &mut i)?.parse()?),
-            "--indexes" => out.params.indexes = Some(value(&args, &mut i)?.into()),
-            "--account" => out.params.account = value(&args, &mut i)?.parse()?,
-            "--change" => out.params.change = value(&args, &mut i)?.parse()?,
-            "-n" | "--num" => out.params.num = value(&args, &mut i)?.parse()?,
-            "--network" => out.params.network = value(&args, &mut i)?.into(),
-            "-s" | "--strength" => out.params.strength = value(&args, &mut i)?.parse()?,
-            "--xpub" => out.params.xpub = Some(value(&args, &mut i)?.into()),
-            "--xpub-path" => out.params.xpub_path = Some(value(&args, &mut i)?.into()),
-            "--xpriv" => out.params.xpriv = Some(value(&args, &mut i)?.into()),
-            "--xpriv-path" => out.params.xpriv_path = Some(value(&args, &mut i)?.into()),
-            "--solana-mode" => out.params.solana_mode = value(&args, &mut i)?.into(),
-            "--program-id" => out.params.program_id = value(&args, &mut i)?.into(),
-            "-o" | "--output" => out.output = Some(value(&args, &mut i)?.into()),
-            "--encrypt" => out.encrypt = true,
-            "--password" => out.password = Some(value(&args, &mut i)?.into()),
-            "-h" | "--help" => bail!(usage()),
-            flag => bail!("unknown derive option: {flag}"),
-        }
-        i += 1;
+#[tokio::main]
+async fn main() -> Result<()> {
+    fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .with_writer(std::io::stderr)
+        .init();
+
+    let cli = Cli::parse();
+
+    match cli.cmd {
+        Cmd::Derive(args) => cmd_derive(args),
+        Cmd::Decrypt(args) => cmd_decrypt(args),
+        Cmd::Pool => cmd_pool(cli.config).await,
     }
-
-    Ok(out)
 }
 
-fn parse_decrypt(args: Vec<String>) -> Result<DecryptArgs> {
-    let mut input = None;
-    let mut output = None;
-    let mut password = None;
-    let mut i = 0;
+// ── sub-command handlers ──────────────────────────────────────────────────────
 
-    while i < args.len() {
-        match args[i].as_str() {
-            "-o" | "--output" => output = Some(value(&args, &mut i)?.into()),
-            "--password" => password = Some(value(&args, &mut i)?.into()),
-            "-h" | "--help" => bail!(usage()),
-            arg if arg.starts_with('-') => bail!("unknown decrypt option: {arg}"),
-            arg if input.is_none() => input = Some(PathBuf::from(arg)),
-            arg => bail!("unexpected decrypt argument: {arg}"),
-        }
-        i += 1;
-    }
+fn cmd_derive(args: DeriveArgs) -> Result<()> {
+    let wallet = derive(Params {
+        chain: args.chain,
+        mnemonic: args.mnemonic,
+        passphrase: args.passphrase,
+        index: args.index,
+        indexes: args.indexes,
+        account: args.account,
+        change: args.change,
+        num: args.num,
+        network: args.network,
+        strength: args.strength,
+        xpub: args.xpub,
+        xpub_path: args.xpub_path,
+        xpriv: args.xpriv,
+        xpriv_path: args.xpriv_path,
+        solana_mode: args.solana_mode,
+        program_id: args.program_id,
+        ..Default::default()
+    })?;
 
-    Ok(DecryptArgs {
-        input: input.context("decrypt requires an input file")?,
-        output,
-        password: password.context("decrypt requires --password")?,
-    })
-}
+    let out = output::render(&wallet, args.format)?;
 
-fn value<'a>(args: &'a [String], i: &mut usize) -> Result<&'a str> {
-    *i += 1;
-    args.get(*i)
-        .map(String::as_str)
-        .context("option requires a value")
-}
-
-fn run_derive(args: DeriveArgs) -> Result<()> {
-    let wallet = derive(args.params)?;
-    let json = serde_json::to_string_pretty(&wallet)?;
     let out = if args.encrypt {
         let password = args
             .password
-            .context("--password is required when --encrypt is used")?;
-        encrypt_data(&json, &password)?
+            .context("--password required with --encrypt")?;
+        encrypt_data(&out, &password)?
     } else {
-        json
+        out
     };
 
-    write_or_print(args.output, &out)
-}
-
-fn run_decrypt(args: DecryptArgs) -> Result<()> {
-    let data = fs::read_to_string(&args.input)
-        .with_context(|| format!("failed to read {}", args.input.display()))?;
-    let encrypted: EncryptedWallet =
-        serde_json::from_str(&data).context("invalid encrypted wallet")?;
-    let plain = decrypt_data(&encrypted, &args.password)?;
-    write_or_print(args.output, &plain)
-}
-
-fn write_or_print(path: Option<PathBuf>, data: &str) -> Result<()> {
-    if let Some(path) = path {
-        fs::write(&path, data).with_context(|| format!("failed to write {}", path.display()))?;
+    if let Some(path) = args.output {
+        fs::write(&path, out).with_context(|| format!("Failed to write {}", path.display()))?;
     } else {
-        println!("{data}");
+        print!("{out}");
     }
     Ok(())
 }
 
-fn usage() -> &'static str {
-    "usage: ladon derive [--chain evm|btc|solana] [--num N] [--mnemonic WORDS] [--output FILE] [--encrypt --password PASS]\n       ladon decrypt FILE --password PASS [--output FILE]"
+fn cmd_decrypt(args: DecryptArgs) -> Result<()> {
+    let raw = fs::read_to_string(&args.input)
+        .with_context(|| format!("Failed to read {}", args.input.display()))?;
+    let enc: EncryptedWallet = serde_json::from_str(&raw).context("Invalid encrypted wallet")?;
+    let plain = decrypt_data(&enc, &args.password)?;
+    print!("{plain}");
+    Ok(())
+}
+
+async fn cmd_pool(config_path: PathBuf) -> Result<()> {
+    let cfg = config::load(&config_path)?;
+    let db = db::Db::connect(&cfg.database).await?;
+    db.ensure_schema().await?;
+    pool::run(&cfg, &db).await
 }
