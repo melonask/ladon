@@ -27,7 +27,7 @@ struct Cli {
 #[derive(Subcommand, Debug)]
 enum Cmd {
     /// Derive addresses and write to stdout (redirect to file as needed).
-    Derive(DeriveArgs),
+    Derive(Box<DeriveArgs>),
 
     /// Decrypt an encrypted wallet file.
     Decrypt(DecryptArgs),
@@ -145,7 +145,7 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.cmd {
-        Cmd::Derive(args) => cmd_derive(args),
+        Cmd::Derive(args) => cmd_derive(*args),
         Cmd::Decrypt(args) => cmd_decrypt(args),
         Cmd::Pool => cmd_pool(cli.config).await,
     }

@@ -44,7 +44,7 @@ async fn tick(cfg: &Config, db: &Db, chain_cfg: &ChainConfig) -> Result<()> {
     }
 
     let needed = (cfg.pool.target as i64 - count).max(0) as u32;
-    let batches = (needed + cfg.pool.batch - 1) / cfg.pool.batch;
+    let batches = needed.div_ceil(cfg.pool.batch);
     info!(chain = %chain_cfg.name, pool = count, target = cfg.pool.target, "Refilling pool");
 
     let next_index = db
