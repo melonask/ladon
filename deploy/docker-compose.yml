@@ -17,9 +17,7 @@ services:
 
   # ── ladon pool daemon ─────────────────────────────────────────────────────────
   ladon:
-    build:
-      context: ..
-      dockerfile: Dockerfile
+    image: ${LADON_IMAGE:?set LADON_IMAGE to the published container image}
     restart: unless-stopped
     depends_on:
       postgres:

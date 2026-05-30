@@ -24,10 +24,10 @@ WORKDIR /app
 RUN mkdir -p data && chown ladon:ladon data
 
 COPY --from=builder /build/target/release/ladon /usr/local/bin/ladon
-COPY Config.toml ./
 
 USER ladon
 
-# Run the pool daemon by default.
-# Override CMD to use the derive or decrypt sub-commands instead.
-CMD ["ladon", "--config", "/app/Config.toml", "pool"]
+# Run the pool daemon by default using Config.toml mounted into WORKDIR.
+# Override CMD to use derive/decrypt or pass --config before the sub-command.
+ENTRYPOINT ["ladon"]
+CMD ["pool"]

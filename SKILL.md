@@ -46,7 +46,7 @@ ladon --config /etc/ladon/Config.toml pool
 
 ### Derive
 
-Output goes to stdout; redirect it to whatever format you need:
+Output goes to stdout. Redirect it to whatever format you need:
 
 ```sh
 # JSON (default) — pipe or redirect
@@ -196,12 +196,47 @@ created_at = "created_at"
 
 ## Docker
 
+Published images are available from GitHub Container Registry. The image does
+not include a config file. Mount your environment-specific `Config.toml` at
+runtime and provide secrets through environment variables.
+
 ```sh
-# Build and start the pool daemon with Postgres
+docker run --rm \
+  -e LADON_MNEMONIC="word1 word2 ... word12" \
+  -e DATABASE_URL="postgres://user:password@host:5432/ladon" \
+  -v "$PWD/Config.toml:/app/Config.toml:ro" \
+  ghcr.io/melonask/ladon:latest
+```
+
+For SQLite-backed pool mode, also mount a writable data directory:
+
+```sh
+docker run --rm \
+  -e LADON_MNEMONIC="word1 word2 ... word12" \
+  -v "$PWD/Config.toml:/app/Config.toml:ro" \
+  -v "$PWD/data:/app/data" \
+  ghcr.io/melonask/ladon:latest
+```
+
+The default container command is `pool`. Override it to run other commands:
+
+```sh
+docker run --rm ghcr.io/melonask/ladon:latest derive --chain evm --num 5
+docker run --rm \
+  -v "$PWD/prod.toml:/config/Config.toml:ro" \
+  ghcr.io/melonask/ladon:latest --config /config/Config.toml pool
+```
+
+```sh
+# Start the pool daemon with Postgres using deploy/docker-compose.yml
+export LADON_IMAGE="ghcr.io/melonask/ladon:latest"
 docker compose -f deploy/docker-compose.yml up -d
 ```
 
-Set `LADON_MNEMONIC` and `DATABASE_URL` in the environment or in `deploy/.env`. The container uses `restart: unless-stopped` so it recovers automatically.
+Set `LADON_IMAGE` and `LADON_MNEMONIC` in the environment or in `deploy/.env`.
+The compose file points `DATABASE_URL` at its bundled Postgres service. Edit it
+if you want to use an external database. The container uses
+`restart: unless-stopped` so it recovers automatically.
 
 ## Systemd (bare-metal)
 
@@ -253,6 +288,6 @@ for key in &wallet.keys {
 
 - Private keys are **zeroized on drop**.
 - Use `--solana-mode cold-export` or `--encrypt` when storing derive output.
-- `--password` on the CLI is visible in shell history; prefer environment-specific secret management (`LADON_MNEMONIC`, vault agents, etc.) in automation.
+- `--password` on the CLI is visible in shell history. Prefer environment-specific secret management (`LADON_MNEMONIC`, vault agents, etc.) in automation.
 - Ed25519 derivation follows **SLIP-0010** (all path segments hardened).
 - In the pool daemon, the mnemonic is never written to disk — it lives only in the process environment.

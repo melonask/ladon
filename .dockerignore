@@ -1,0 +1,10 @@
+/target
+/.git
+/.github
+/.githooks
+.DS_Store
+.env
+Config.toml
+deploy/.env
+*.enc.json
+*.json
