@@ -1,0 +1,48 @@
+[package]
+name = "ladon"
+version = "0.1.0"
+edition = "2024"
+authors = ["Melon Ask"]
+description = "Fast multi-chain HD wallet CLI: EVM, Bitcoin, Solana"
+license = "MIT"
+repository = "https://github.com/melonask/ladon"
+homepage = "https://github.com/melonask/ladon"
+keywords = ["crypto", "wallet", "hd-wallet", "mnemonic", "solana"]
+categories = ["command-line-utilities", "cryptography"]
+rust-version = "1.96"
+
+[dependencies]
+bip39      = { version = "2.2", features = ["rand"] }
+bitcoin    = { version = "0.32", features = ["std", "rand"], default-features = false }
+ed25519-dalek = "2.2"
+solana-pubkey = { version = "4.2", features = ["curve25519", "sha2"] }
+tiny-keccak = { version = "2.0", features = ["keccak"] }
+hmac        = "0.13"
+sha2        = "0.11"
+aes-gcm     = "0.10"
+scrypt      = "0.12"
+anyhow      = "1.0"
+serde       = { version = "1.0", features = ["derive"] }
+serde_json  = "1.0"
+hex         = "0.4"
+base64      = "0.22"
+rand        = "0.10"
+zeroize     = { version = "1.8", features = ["derive"] }
+
+[lib]
+name = "ladon"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ladon"
+path = "src/main.rs"
+
+[profile.release]
+opt-level     = "z"
+lto           = true
+codegen-units = 1
+strip         = true
+panic         = "abort"
+
+[dev-dependencies]
+serde_json = "1.0"
