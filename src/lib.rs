@@ -23,7 +23,8 @@ pub struct Params {
     pub mnemonic: Option<String>,
     pub passphrase: String,
     pub index: Option<u32>,
-    /// Comma-separated override list, e.g. `"0,5,99"`. Supersedes `index`/`num`.
+    /// Comma-separated index/range override list, e.g. `"0,5,22-44"`.
+    /// Supersedes `index`/`num`.
     pub indexes: Option<String>,
     pub account: u32,
     pub change: u32,
@@ -208,13 +209,42 @@ pub fn parse_path(path: &str) -> Result<Vec<u32>> {
         .collect()
 }
 
-/// Parse a comma-separated index list into a `Vec<u32>`.
+/// Parse a comma-separated index/range list into a `Vec<u32>`.
 pub fn parse_indexes(s: &str) -> Result<Vec<u32>> {
     s.split(',')
-        .map(|t| {
-            t.trim()
-                .parse::<u32>()
-                .with_context(|| format!("Invalid index: '{}'", t.trim()))
+        .flat_map(|raw| {
+            let token = raw.trim();
+            if token.is_empty() {
+                return vec![Err(anyhow::anyhow!("Empty index token"))];
+            }
+
+            if let Some((start, end)) = token.split_once('-') {
+                let start = match start.trim().parse::<u32>() {
+                    Ok(start) => start,
+                    Err(_) => {
+                        return vec![Err(anyhow::anyhow!(
+                            "Invalid range start: '{}'",
+                            start.trim()
+                        ))];
+                    }
+                };
+                let end = match end.trim().parse::<u32>() {
+                    Ok(end) => end,
+                    Err(_) => {
+                        return vec![Err(anyhow::anyhow!("Invalid range end: '{}'", end.trim()))];
+                    }
+                };
+                if start > end {
+                    return vec![Err(anyhow::anyhow!("Invalid descending range: '{token}'"))];
+                }
+                return (start..=end).map(Ok).collect();
+            }
+
+            vec![
+                token
+                    .parse::<u32>()
+                    .with_context(|| format!("Invalid index: '{token}'")),
+            ]
         })
         .collect()
 }

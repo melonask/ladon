@@ -18,7 +18,13 @@ fn path_and_index_helpers_are_strict() {
         "m/44'/501'/0'/0'/7'"
     );
     assert_eq!(parse_indexes("0, 2,9").unwrap(), vec![0, 2, 9]);
+    assert_eq!(
+        parse_indexes("0,5,22-24,12,11").unwrap(),
+        vec![0, 5, 22, 23, 24, 12, 11]
+    );
     assert!(parse_indexes("0,nope").is_err());
+    assert!(parse_indexes("5-2").is_err());
+    assert!(parse_indexes("1-").is_err());
     assert_eq!(
         parse_path("m/44'/60'/0'/7").unwrap(),
         vec![44 + HARDENED, 60 + HARDENED, HARDENED, 7]
@@ -129,13 +135,13 @@ fn xpub_xpriv_indexes_and_modes_are_usable() {
     let sparse = derive(Params {
         chain: "evm".into(),
         mnemonic: Some(MNEMONIC.into()),
-        indexes: Some("0,2".into()),
+        indexes: Some("0,2-3".into()),
         ..Default::default()
     })
     .unwrap();
     assert_eq!(
         sparse.keys.iter().map(|k| k.index).collect::<Vec<_>>(),
-        vec![0, 2]
+        vec![0, 2, 3]
     );
 }
 

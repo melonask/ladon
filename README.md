@@ -33,8 +33,8 @@ ladon derive --chain solana --solana-mode cold-export --num 10
 # Solana — PDA mode
 ladon derive --chain solana --solana-mode pda --program-id <BASE58_PROGRAM_ID>
 
-# Specific indexes (overrides --index / --num)
-ladon derive --chain evm --indexes 0,5,99
+# Specific indexes and inclusive ranges (overrides --index / --num)
+ladon derive --chain evm --indexes 0,5,22-44,55,66-109,12,11
 
 # From xpub (watch-only)
 ladon derive --chain evm --xpub xpub6C...
@@ -56,7 +56,7 @@ ladon derive --chain evm --output wallet.enc --encrypt --password "mypassword"
 | `--chain` | `evm` | Target chain: `evm`, `btc`, `solana` |
 | `--num` | `1` | Number of addresses |
 | `--index` | — | Single specific index |
-| `--indexes` | — | Comma-separated indexes, e.g. `0,3,7` |
+| `--indexes` | — | Comma-separated indexes/ranges, e.g. `0,3,7-12` |
 | `--account` | `0` | BIP44 account |
 | `--change` | `0` | BIP44 change |
 | `--network` | `bitcoin` | Bitcoin network: `bitcoin`, `testnet`, `signet`, `regtest` |
@@ -112,7 +112,7 @@ pub struct Params {
     pub mnemonic: Option<String>,
     pub passphrase: String,
     pub index: Option<u32>,
-    pub indexes: Option<String>, // comma-separated, e.g. "0,5,99"
+    pub indexes: Option<String>, // comma-separated indexes/ranges, e.g. "0,5,22-44"
     pub account: u32,
     pub change: u32,
     pub num: u32,
