@@ -115,6 +115,10 @@ The `pool` sub-command runs a long-lived service that:
 4. Keeps the total at `[pool].target` addresses per chain.
 
 Your application removes rows from the pool table as it assigns addresses to users.
+Retrieve and delete the oldest available rows first, ordered by ascending `index` per
+chain. The pool daemon resumes generation from the current maximum stored `index`
+plus one, so deleting the newest/highest indexes first can cause previously assigned
+indexes to be generated again after a restart.
 
 ### Example Config.toml (pool mode)
 
