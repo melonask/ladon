@@ -59,6 +59,29 @@ fn cli_derive_creates_three_addresses_per_chain() {
 }
 
 #[test]
+fn cli_derive_accepts_caip2_chain_aliases() {
+    for (alias, canonical) in [
+        ("eip155:1", "evm"),
+        ("bip122:000000000019d6689c085ae165831e93", "btc"),
+        ("solana:mainnet", "solana"),
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_ladon"))
+            .args(["derive", "--chain", alias, "--mnemonic", MNEMONIC])
+            .output()
+            .unwrap();
+
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let wallet: WalletOutput = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(wallet.chain, canonical);
+        assert_eq!(wallet.keys.len(), 1);
+    }
+}
+
+#[test]
 fn cli_encrypt_and_decrypt_roundtrip() {
     let dir = std::env::temp_dir();
     let enc = dir.join(format!("ladon-{}-wallet.enc", std::process::id()));

@@ -233,6 +233,10 @@ pub struct ColumnConfig {
     #[serde(default = "col_index")]
     pub index: String,
 
+    /// Nullable boolean usage marker. NULL means available; TRUE means used.
+    #[serde(default = "col_is_used")]
+    pub is_used: String,
+
     /// ISO-8601 creation timestamp column.
     #[serde(default = "col_created_at")]
     pub created_at: String,
@@ -252,6 +256,9 @@ fn col_path() -> String {
 }
 fn col_index() -> String {
     "index".to_string()
+}
+fn col_is_used() -> String {
+    "is_used".to_string()
 }
 fn col_created_at() -> String {
     "created_at".to_string()

@@ -4,7 +4,7 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use chrono::Utc;
-use ladon::{Params, derive};
+use ladon::{Params, canonical_chain, derive};
 use tokio::time::{Duration, sleep};
 use tracing::{error, info};
 use ulid::Ulid;
@@ -37,7 +37,8 @@ pub async fn run(cfg: &Config, db: &Db) -> Result<()> {
 }
 
 async fn tick(cfg: &Config, db: &Db, chain_cfg: &ChainConfig) -> Result<()> {
-    let count = db.count(&chain_cfg.name).await?;
+    let chain = canonical_chain(&chain_cfg.name)?;
+    let count = db.count(&chain).await?;
 
     if count >= cfg.pool.threshold as i64 {
         return Ok(());
@@ -45,13 +46,9 @@ async fn tick(cfg: &Config, db: &Db, chain_cfg: &ChainConfig) -> Result<()> {
 
     let needed = (cfg.pool.target as i64 - count).max(0) as u32;
     let batches = needed.div_ceil(cfg.pool.batch);
-    info!(chain = %chain_cfg.name, pool = count, target = cfg.pool.target, "Refilling pool");
+    info!(chain = %chain, pool = count, target = cfg.pool.target, "Refilling pool");
 
-    let next_index = db
-        .max_index(&chain_cfg.name)
-        .await?
-        .map(|i| i + 1)
-        .unwrap_or(0);
+    let next_index = db.max_index(&chain).await?.map(|i| i + 1).unwrap_or(0);
     let (mnemonic, passphrase, xpriv) = resolve_secret(&cfg.derive.secret)?;
 
     let mut global_idx = next_index;
@@ -66,7 +63,7 @@ async fn tick(cfg: &Config, db: &Db, chain_cfg: &ChainConfig) -> Result<()> {
             .join(",");
 
         let wallet = derive(Params {
-            chain: chain_cfg.name.clone(),
+            chain: chain.clone(),
             mnemonic: mnemonic.clone(),
             passphrase: passphrase.clone().unwrap_or_default(),
             indexes: Some(index_str),
@@ -86,7 +83,7 @@ async fn tick(cfg: &Config, db: &Db, chain_cfg: &ChainConfig) -> Result<()> {
             .iter()
             .map(|k| AddressRow {
                 id: Ulid::new().to_string(),
-                chain: chain_cfg.name.clone(),
+                chain: chain.clone(),
                 address: k.address.clone(),
                 path: k.path.clone(),
                 index: k.index,
@@ -96,7 +93,7 @@ async fn tick(cfg: &Config, db: &Db, chain_cfg: &ChainConfig) -> Result<()> {
 
         let inserted = db.insert(&rows).await?;
         global_idx += batch_size;
-        info!(chain = %chain_cfg.name, inserted, "Batch inserted");
+        info!(chain = %chain, inserted, "Batch inserted");
     }
 
     Ok(())

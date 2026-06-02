@@ -92,10 +92,7 @@ pub struct EncryptedWallet {
 
 /// Generate one or more keys / addresses. Single entry-point for programmatic use.
 pub fn derive(p: Params) -> Result<WalletOutput> {
-    let chain = {
-        let s = p.chain.to_lowercase();
-        if s.is_empty() { "evm".to_string() } else { s }
-    };
+    let chain = canonical_chain(&p.chain)?;
 
     let num = if p.num == 0 { 1 } else { p.num };
     let base = default_path(&chain, p.account, p.change, p.hw_sim);
@@ -138,6 +135,24 @@ pub fn derive(p: Params) -> Result<WalletOutput> {
         &p.network,
         &p.indexes,
     )
+}
+
+/// Convert supported chain aliases, including CAIP-2-style identifiers, to Ladon's canonical names.
+pub fn canonical_chain(chain: &str) -> Result<String> {
+    let s = chain.trim().to_lowercase();
+    let s = if s.is_empty() { "evm" } else { &s };
+
+    if s == "evm" || s == "ethereum" || s == "eip155" || s.starts_with("eip155:") {
+        return Ok("evm".to_string());
+    }
+    if s == "btc" || s == "bitcoin" || s == "bip122" || s.starts_with("bip122:") {
+        return Ok("btc".to_string());
+    }
+    if s == "solana" || s.starts_with("solana:") {
+        return Ok("solana".to_string());
+    }
+
+    anyhow::bail!("Unsupported chain '{chain}'. Use: evm/eip155, btc/bip122, solana")
 }
 
 // ── Path helpers ──────────────────────────────────────────────────────────────

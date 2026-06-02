@@ -78,7 +78,7 @@ ladon derive --chain evm --xpriv xprv9s...
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--chain` / `-c` | `evm` | `evm`, `btc`, `solana` |
+| `--chain` / `-c` | `evm` | `evm`/`eip155[:id]`, `btc`/`bip122[:id]`, `solana[:id]` |
 | `--num` / `-n` | `1` | Number of addresses |
 | `--index` / `-i` | — | Single specific index |
 | `--indexes` | — | Comma-separated indexes/ranges |
@@ -113,11 +113,15 @@ The `pool` sub-command runs a long-lived service that:
 3. Derives and inserts new addresses when the count drops below `[pool].threshold`.
 4. Keeps the total at `[pool].target` addresses per chain.
 
-Your application removes rows from the pool table as it assigns addresses to users.
-Retrieve and delete the oldest available rows first, ordered by ascending `index` per
-chain. The pool daemon resumes generation from the current maximum stored `index`
-plus one, so deleting the newest/highest indexes first can cause previously assigned
-indexes to be generated again after a restart.
+Available rows have `is_used IS NULL`. When assigning an address, your application
+should retrieve the oldest available row first, ordered by ascending `index` per chain.
+Then either set `is_used = true` or delete the assigned row.
+
+Marking assigned rows with `is_used = true` is the safest mode: used rows no longer
+count toward the available pool, but they still preserve the maximum generated `index`.
+If your application deletes assigned rows instead, at least one highest-index row must
+remain in the table for each chain. Otherwise Ladon cannot distinguish a never-filled
+pool from a fully-consumed pool and will restart generation at index `0`.
 
 ### Example Config.toml (pool mode)
 
@@ -147,6 +151,7 @@ chain      = "chain"
 address    = "address"
 path       = "path"
 index      = "index"
+is_used    = "is_used"
 created_at = "created_at"
 ```
 

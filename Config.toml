@@ -53,6 +53,7 @@ chain      = "chain"
 address    = "address"
 path       = "path"
 index      = "index"
+is_used    = "is_used"
 created_at = "created_at"
 
 # ── Database — Postgres (comment out the sqlite section above if using this) ────
@@ -71,4 +72,5 @@ created_at = "created_at"
 # address    = "address"
 # path       = "path"
 # index      = "index"
+# is_used    = "is_used"
 # created_at = "created_at"

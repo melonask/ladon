@@ -58,6 +58,7 @@ impl Db {
                 "{address}"    TEXT NOT NULL,
                 "{path}"       TEXT NOT NULL,
                 "{index}"      INTEGER NOT NULL,
+                "{is_used}"    BOOLEAN NULL,
                 "{created_at}" TEXT NOT NULL
             )
             "#,
@@ -67,20 +68,34 @@ impl Db {
             address = self.cols.address,
             path = self.cols.path,
             index = self.cols.index,
+            is_used = self.cols.is_used,
             created_at = self.cols.created_at,
         );
         sqlx::query(&sql)
             .execute(&self.pool)
             .await
             .context("Schema creation failed")?;
+        self.ensure_is_used_column().await?;
         Ok(())
+    }
+
+    async fn ensure_is_used_column(&self) -> Result<()> {
+        let sql = format!(
+            r#"ALTER TABLE "{}" ADD COLUMN "{}" BOOLEAN NULL"#,
+            self.table, self.cols.is_used,
+        );
+        match sqlx::query(&sql).execute(&self.pool).await {
+            Ok(_) => Ok(()),
+            Err(e) if is_duplicate_column_error(&e) => Ok(()),
+            Err(e) => Err(e).context("is_used column migration failed"),
+        }
     }
 
     /// Count available addresses in the pool for `chain`.
     pub async fn count(&self, chain: &str) -> Result<i64> {
         let sql = format!(
-            r#"SELECT COUNT(*) as cnt FROM "{}" WHERE "{}" = $1"#,
-            self.table, self.cols.chain,
+            r#"SELECT COUNT(*) as cnt FROM "{}" WHERE "{}" = $1 AND "{}" IS NULL"#,
+            self.table, self.cols.chain, self.cols.is_used,
         );
         let row = sqlx::query(&sql)
             .bind(chain)
@@ -141,6 +156,11 @@ impl Db {
             .and_then(|r| r.try_get::<i64, _>("mx").ok())
             .map(|v| v as u32))
     }
+}
+
+fn is_duplicate_column_error(e: &sqlx::Error) -> bool {
+    let msg = e.to_string().to_lowercase();
+    msg.contains("duplicate column") || msg.contains("already exists")
 }
 
 /// A single address row ready for insertion.

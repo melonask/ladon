@@ -1,7 +1,7 @@
 use ladon::{
-    EncryptedWallet, HARDENED, Params, child_path, decrypt_data, default_path, derive, derive_btc,
-    derive_evm, derive_slip10, derive_solana, encrypt_data, mnemonic_for, parse_indexes,
-    parse_path, secp_key,
+    EncryptedWallet, HARDENED, Params, canonical_chain, child_path, decrypt_data, default_path,
+    derive, derive_btc, derive_evm, derive_slip10, derive_solana, encrypt_data, mnemonic_for,
+    parse_indexes, parse_path, secp_key,
 };
 
 const MNEMONIC: &str =
@@ -30,6 +30,52 @@ fn path_and_index_helpers_are_strict() {
         vec![44 + HARDENED, 60 + HARDENED, HARDENED, 7]
     );
     assert!(parse_path(&format!("{}'", HARDENED)).is_err());
+}
+
+#[test]
+fn chain_aliases_normalise_to_supported_chains() {
+    for alias in ["evm", "ethereum", "eip155", "eip155:1", "eip155:8453"] {
+        assert_eq!(canonical_chain(alias).unwrap(), "evm");
+    }
+    for alias in [
+        "btc",
+        "bitcoin",
+        "bip122",
+        "bip122:000000000019d6689c085ae165831e93",
+    ] {
+        assert_eq!(canonical_chain(alias).unwrap(), "btc");
+    }
+    for alias in ["solana", "solana:mainnet", "solana:devnet"] {
+        assert_eq!(canonical_chain(alias).unwrap(), "solana");
+    }
+    assert!(canonical_chain("cosmos:cosmoshub-4").is_err());
+}
+
+#[test]
+fn derive_accepts_caip2_chain_aliases() {
+    let evm = derive(Params {
+        chain: "eip155:1".into(),
+        mnemonic: Some(MNEMONIC.into()),
+        ..Default::default()
+    })
+    .unwrap();
+    assert_eq!(evm.chain, "evm");
+
+    let btc = derive(Params {
+        chain: "bip122:000000000019d6689c085ae165831e93".into(),
+        mnemonic: Some(MNEMONIC.into()),
+        ..Default::default()
+    })
+    .unwrap();
+    assert_eq!(btc.chain, "btc");
+
+    let solana = derive(Params {
+        chain: "solana:mainnet".into(),
+        mnemonic: Some(MNEMONIC.into()),
+        ..Default::default()
+    })
+    .unwrap();
+    assert_eq!(solana.chain, "solana");
 }
 
 #[test]
