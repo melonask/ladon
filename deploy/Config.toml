@@ -8,14 +8,17 @@ var = "LADON_MNEMONIC"
 
 [[derive.chains]]
 name = "evm"
+# start_index = 1
 
 [[derive.chains]]
 name = "solana"
 solana_mode = "cold-export"
+# start_index = 1
 
 [[derive.chains]]
 name = "btc"
 network = "bitcoin"
+# start_index = 1
 
 [pool]
 target = 10

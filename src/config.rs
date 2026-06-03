@@ -45,6 +45,10 @@ pub struct ChainConfig {
     #[serde(default)]
     pub change: u32,
 
+    /// First address index to generate when no rows exist for this chain (default `0`).
+    #[serde(default)]
+    pub start_index: u32,
+
     /// Bitcoin network: `"bitcoin"` | `"testnet"` | `"signet"` | `"regtest"`.
     #[serde(default = "default_btc_network")]
     pub network: String,
@@ -274,4 +278,29 @@ pub fn load(path: &Path) -> Result<Config> {
         .with_context(|| format!("Failed to parse config: {}", path.display()))?;
     cfg.database.validate()?;
     Ok(cfg)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn chain_start_index_defaults_to_zero() {
+        let chain: ChainConfig = toml::from_str(r#"name = "evm""#).unwrap();
+
+        assert_eq!(chain.start_index, 0);
+    }
+
+    #[test]
+    fn chain_start_index_deserializes_from_config() {
+        let chain: ChainConfig = toml::from_str(
+            r#"
+            name = "solana"
+            start_index = 1
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(chain.start_index, 1);
+    }
 }

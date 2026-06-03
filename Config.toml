@@ -19,11 +19,13 @@ var  = "LADON_MNEMONIC"
 name    = "evm"
 account = 0
 change  = 0
+# start_index = 1   # first generated pool index when this chain has no rows
 
 [[derive.chains]]
 name        = "solana"
 account     = 0
 change      = 0
+# start_index = 1
 solana_mode = "cold-export"   # "full" | "cold-export" | "hsm-sim" | "pda"
 # program_id = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
 
@@ -31,6 +33,7 @@ solana_mode = "cold-export"   # "full" | "cold-export" | "hsm-sim" | "pda"
 # name    = "btc"
 # account = 0
 # change  = 0
+# start_index = 1
 # network = "bitcoin"   # "bitcoin" | "testnet" | "signet" | "regtest"
 
 # ── Pool daemon ─────────────────────────────────────────────────────────────────

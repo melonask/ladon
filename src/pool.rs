@@ -48,7 +48,7 @@ async fn tick(cfg: &Config, db: &Db, chain_cfg: &ChainConfig) -> Result<()> {
     let batches = needed.div_ceil(cfg.pool.batch);
     info!(chain = %chain, pool = count, target = cfg.pool.target, "Refilling pool");
 
-    let next_index = db.max_index(&chain).await?.map(|i| i + 1).unwrap_or(0);
+    let next_index = next_index(db.max_index(&chain).await?, chain_cfg.start_index);
     let (mnemonic, passphrase, xpriv) = resolve_secret(&cfg.derive.secret)?;
 
     let mut global_idx = next_index;
@@ -99,6 +99,10 @@ async fn tick(cfg: &Config, db: &Db, chain_cfg: &ChainConfig) -> Result<()> {
     Ok(())
 }
 
+fn next_index(max_index: Option<u32>, start_index: u32) -> u32 {
+    max_index.map(|i| i + 1).unwrap_or(start_index)
+}
+
 /// Resolve mnemonic / passphrase / xpriv from the configured [`SecretSource`].
 fn resolve_secret(src: &SecretSource) -> Result<(Option<String>, Option<String>, Option<String>)> {
     match src {
@@ -135,5 +139,20 @@ fn resolve_secret(src: &SecretSource) -> Result<(Option<String>, Option<String>,
                 .transpose()?;
             Ok((Some(mnemonic), passphrase, None))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::next_index;
+
+    #[test]
+    fn next_index_uses_start_index_when_chain_has_no_rows() {
+        assert_eq!(next_index(None, 1), 1);
+    }
+
+    #[test]
+    fn next_index_continues_after_existing_max_index() {
+        assert_eq!(next_index(Some(7), 1), 8);
     }
 }

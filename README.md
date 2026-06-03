@@ -121,7 +121,12 @@ Marking assigned rows with `is_used = true` is the safest mode: used rows no lon
 count toward the available pool, but they still preserve the maximum generated `index`.
 If your application deletes assigned rows instead, at least one highest-index row must
 remain in the table for each chain. Otherwise Ladon cannot distinguish a never-filled
-pool from a fully-consumed pool and will restart generation at index `0`.
+pool from a fully-consumed pool and will restart generation at the chain's configured
+`start_index` value, which defaults to `0`.
+
+Set `start_index` on a `[[derive.chains]]` entry to control the first index generated
+for a brand-new chain pool. Once any row exists for that chain, Ladon always continues
+from `MAX(index) + 1`.
 
 ### Example Config.toml (pool mode)
 
@@ -132,6 +137,7 @@ var  = "LADON_MNEMONIC"
 
 [[derive.chains]]
 name = "evm"
+start_index = 1
 
 [pool]
 target        = 1000

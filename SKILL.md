@@ -116,7 +116,9 @@ The `pool` sub-command runs a long-lived service that:
 
 Available rows have `is_used IS NULL`. When assigning an address, your application should retrieve the oldest available row first, ordered by ascending `index` per chain. Then either set `is_used = true` or delete the assigned row.
 
-Marking assigned rows with `is_used = true` is the safest mode: used rows no longer count toward the available pool, but they still preserve the maximum generated `index`. If your application deletes assigned rows instead, at least one highest-index row must remain in the table for each chain. Otherwise Ladon cannot distinguish a never-filled pool from a fully-consumed pool and will restart generation at index `0`.
+Marking assigned rows with `is_used = true` is the safest mode: used rows no longer count toward the available pool, but they still preserve the maximum generated `index`. If your application deletes assigned rows instead, at least one highest-index row must remain in the table for each chain. Otherwise Ladon cannot distinguish a never-filled pool from a fully-consumed pool and will restart generation at the chain's configured `start_index` value, which defaults to `0`.
+
+Set `start_index` on a `[[derive.chains]]` entry to control the first index generated for a brand-new chain pool. Once any row exists for that chain, Ladon always continues from `MAX(index) + 1`.
 
 ### Example Config.toml (pool mode)
 
@@ -139,11 +141,13 @@ var  = "LADON_MNEMONIC"
 name    = "evm"
 account = 0
 change  = 0
+# start_index = 1   # first generated pool index when this chain has no rows
 
 [[derive.chains]]
 name        = "solana"
 account     = 0
 change      = 0
+# start_index = 1
 solana_mode = "cold-export"   # "full" | "cold-export" | "hsm-sim" | "pda"
 # program_id = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
 
@@ -151,6 +155,7 @@ solana_mode = "cold-export"   # "full" | "cold-export" | "hsm-sim" | "pda"
 # name    = "btc"
 # account = 0
 # change  = 0
+# start_index = 1
 # network = "bitcoin"   # "bitcoin" | "testnet" | "signet" | "regtest"
 
 # ── Pool daemon ─────────────────────────────────────────────────────────────────
