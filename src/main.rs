@@ -21,7 +21,7 @@ struct Cli {
     config: PathBuf,
 
     #[command(subcommand)]
-    cmd: Cmd,
+    cmd: Option<Cmd>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -145,9 +145,9 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.cmd {
-        Cmd::Derive(args) => cmd_derive(*args),
-        Cmd::Decrypt(args) => cmd_decrypt(args),
-        Cmd::Pool => cmd_pool(cli.config).await,
+        Some(Cmd::Derive(args)) => cmd_derive(*args),
+        Some(Cmd::Decrypt(args)) => cmd_decrypt(args),
+        Some(Cmd::Pool) | None => cmd_pool(cli.config).await,
     }
 }
 

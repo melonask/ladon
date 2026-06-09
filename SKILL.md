@@ -24,13 +24,13 @@ cargo install ladon
 
 ## Modes
 
-Ladon has three sub-commands:
+Ladon has three sub-commands. `pool` is the default — when no sub-command is given, it runs the address-pool daemon.
 
 | Sub-command | Purpose |
 |-------------|---------|
 | `derive`    | Derive one or more addresses and print to stdout |
 | `decrypt`   | Decrypt an encrypted wallet file |
-| `pool`      | Run the address-pool daemon (requires `[database]` in config) |
+| `pool`      | Run the address-pool daemon (requires `[database]` in config, default) |
 
 ---
 
@@ -41,6 +41,8 @@ Ladon has three sub-commands:
 All settings live in `Config.toml` (or any path passed with `--config` / `-C`). Per-flag overrides are available on `derive` for ad-hoc use.
 
 ```sh
+ladon --config /etc/ladon/Config.toml
+# Equivalent to:
 ladon --config /etc/ladon/Config.toml pool
 ```
 
@@ -233,7 +235,7 @@ The default container command is `pool`. Override it to run other commands:
 docker run --rm ghcr.io/melonask/ladon:latest derive --chain evm --num 5
 docker run --rm \
   -v "$PWD/prod.toml:/config/Config.toml:ro" \
-  ghcr.io/melonask/ladon:latest --config /config/Config.toml pool
+  ghcr.io/melonask/ladon:latest --config /config/Config.toml
 ```
 
 ```sh
