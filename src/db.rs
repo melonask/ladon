@@ -1,6 +1,6 @@
 use crate::config::{ColumnConfig, DbConfig};
 use anyhow::{Context, Result};
-use sqlx::{AnyPool, Row, any::AnyPoolOptions};
+use sqlx::{AnyPool, AssertSqlSafe, Row, any::AnyPoolOptions};
 use tracing::info;
 
 /// A thin handle around an [`AnyPool`] plus the resolved table/column names.
@@ -71,7 +71,10 @@ impl Db {
             is_used = self.cols.is_used,
             created_at = self.cols.created_at,
         );
-        sqlx::query(&sql)
+        // Table and column names are resolved from Ladon's strict config schema;
+        // value inputs remain bound parameters. SQLx 0.9 requires an explicit
+        // audit marker for dynamic identifier SQL.
+        sqlx::query(AssertSqlSafe(sql))
             .execute(&self.pool)
             .await
             .context("Schema creation failed")?;
@@ -84,7 +87,7 @@ impl Db {
             r#"ALTER TABLE "{}" ADD COLUMN "{}" BOOLEAN NULL"#,
             self.table, self.cols.is_used,
         );
-        match sqlx::query(&sql).execute(&self.pool).await {
+        match sqlx::query(AssertSqlSafe(sql)).execute(&self.pool).await {
             Ok(_) => Ok(()),
             Err(e) if is_duplicate_column_error(&e) => Ok(()),
             Err(e) => Err(e).context("is_used column migration failed"),
@@ -97,7 +100,7 @@ impl Db {
             r#"SELECT COUNT(*) as cnt FROM "{}" WHERE "{}" = $1 AND "{}" IS NULL"#,
             self.table, self.cols.chain, self.cols.is_used,
         );
-        let row = sqlx::query(&sql)
+        let row = sqlx::query(AssertSqlSafe(sql))
             .bind(chain)
             .fetch_one(&self.pool)
             .await
@@ -125,7 +128,7 @@ impl Db {
         );
 
         for row in rows {
-            sqlx::query(&sql)
+            sqlx::query(AssertSqlSafe(sql.clone()))
                 .bind(&row.id)
                 .bind(&row.chain)
                 .bind(&row.address)
@@ -147,7 +150,7 @@ impl Db {
             r#"SELECT MAX("{}") as mx FROM "{}" WHERE "{}" = $1"#,
             self.cols.index, self.table, self.cols.chain,
         );
-        let row = sqlx::query(&sql)
+        let row = sqlx::query(AssertSqlSafe(sql))
             .bind(chain)
             .fetch_optional(&self.pool)
             .await

@@ -1,39 +1,37 @@
 # Postgres-backed pool-daemon config used by deploy/docker-compose.yml.
+# This file uses the namespaced [ladon] format with a shared [stores] section.
 
-[derive]
+[ladon]
+store = "ladon"
 
-[derive.secret]
+[ladon.derive.secret]
 kind = "env"
 var = "LADON_MNEMONIC"
 
-[[derive.chains]]
+[[ladon.derive.chains]]
 name = "evm"
 # start_index = 1
 
-[[derive.chains]]
+[[ladon.derive.chains]]
 name = "solana"
 solana_mode = "cold-export"
 # start_index = 1
 
-[[derive.chains]]
+[[ladon.derive.chains]]
 name = "btc"
 network = "bitcoin"
 # start_index = 1
 
-[pool]
+[ladon.pool]
 target = 10
 threshold = 5
 batch = 5
 interval_secs = 10
 
-[database.postgres]
-url_env = "DATABASE_URL"
-pool_size = 5
-
-[database.postgres.table]
+[ladon.table]
 name = "derived_addresses"
 
-[database.postgres.table.columns]
+[ladon.table.columns]
 id = "id"
 chain = "chain"
 address = "address"
@@ -41,3 +39,9 @@ path = "path"
 index = "index"
 is_used = "is_used"
 created_at = "created_at"
+
+[stores.ladon]
+driver = "postgres"
+url = "${DATABASE_URL}"
+max_connections = 5
+connect_timeout_secs = 10

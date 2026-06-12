@@ -664,14 +664,12 @@ pub fn eth_address(pubkey_uncompressed: &[u8]) -> String {
 pub fn encrypt_data(data: &str, password: &str) -> Result<String> {
     use aes_gcm::{Aes256Gcm, KeyInit, aead::Aead};
     use base64::Engine;
-    use rand::RngCore;
     use scrypt::scrypt;
 
-    let mut rng = rand::thread_rng();
     let mut salt = [0u8; 16];
-    rng.fill_bytes(&mut salt);
+    rand::fill(&mut salt[..]);
     let mut nonce_bytes = [0u8; 12];
-    rng.fill_bytes(&mut nonce_bytes);
+    rand::fill(&mut nonce_bytes[..]);
 
     let mut key = [0u8; 32];
     let params = scrypt::Params::new(16, 8, 1).context("Invalid scrypt params")?;

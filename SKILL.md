@@ -10,11 +10,9 @@ description: >
   EVM/BTC/Solana key generation, or any task involving cryptocurrency address management.
 ---
 
-# Ladon — Multi-Chain HD Wallet
+Fast, minimal, multi-chain HD wallet CLI, library, and address-pool daemon — EVM, Bitcoin, Solana.
 
-> *Like the hundred-headed serpent of Greek myth, Ladon generates as many addresses as you need.*
-
-Ladon is a fast, minimal, multi-chain HD wallet CLI, Rust library, and address-pool daemon. It supports EVM, Bitcoin, and Solana chains with BIP-32/44 and SLIP-0010 derivation.
+---
 
 ## Install
 
@@ -22,29 +20,67 @@ Ladon is a fast, minimal, multi-chain HD wallet CLI, Rust library, and address-p
 cargo install ladon
 ```
 
+---
+
+## Feature flags
+
+| Feature | Default | Description |
+|---------|---------|-------------|
+| `pool` | **yes** | Async runtime (tokio) + database support (sqlx) for the pool daemon |
+| `sqlite` | **yes** | SQLite backend for pool mode (implies `pool`) |
+| `postgres` | no | Postgres backend for pool mode (implies `pool`) |
+| `pg` | no | Alias for `postgres` |
+| `full` | no | Enables `sqlite` + `postgres` |
+
+SQLite works by default. Enable Postgres with:
+
+```sh
+cargo install ladon --features pg
+# or
+cargo build --features postgres
+```
+
+---
+
 ## Modes
 
-Ladon has three sub-commands. `pool` is the default — when no sub-command is given, it runs the address-pool daemon.
+ladon has three sub-commands. `pool` is the default — when no sub-command is given, it runs the address-pool daemon.
 
 | Sub-command | Purpose |
 |-------------|---------|
 | `derive`    | Derive one or more addresses and print to stdout |
 | `decrypt`   | Decrypt an encrypted wallet file |
-| `pool`      | Run the address-pool daemon (requires `[database]` in config, default) |
+| `pool`      | Run the address-pool daemon (requires `[ladon]` in config, default) |
 
 ---
 
-## CLI Usage
+## CLI
 
-### Configuration
+### Configuration file
 
-All settings live in `Config.toml` (or any path passed with `--config` / `-C`). Per-flag overrides are available on `derive` for ad-hoc use.
+All settings live in `Config.toml` (or any path passed with `--config`/`-C`).
+Per-flag overrides are available on `derive` for ad-hoc use.
 
 ```sh
 ladon --config /etc/ladon/Config.toml
 # Equivalent to:
 ladon --config /etc/ladon/Config.toml pool
 ```
+
+See [Config.toml](./Config.toml) for a fully annotated example.
+
+### Testing
+
+```sh
+cargo test
+cargo test --features pg
+```
+
+For a multi-service end-to-end run, use the Pano scenario in `../pano/tests/e2e/`.
+It starts Ladon with a namespaced `[ladon]` config, validates shared `[chains]`
+references, and uses a PostgreSQL `[stores.ladon]` profile.
+
+---
 
 ### Derive
 
@@ -77,7 +113,7 @@ ladon derive --chain evm --xpub xpub6C...
 ladon derive --chain evm --xpriv xprv9s...
 ```
 
-#### Key Flags
+#### Key flags
 
 | Flag | Default | Description |
 |------|---------|-------------|
@@ -107,74 +143,54 @@ ladon decrypt wallet.enc --password "secret" > wallet.json
 
 ---
 
-## Address-Pool Daemon
+## Address-pool daemon
 
 The `pool` sub-command runs a long-lived service that:
 
 1. Connects to a SQLite or Postgres database.
 2. Polls the pool table on a configurable interval.
-3. Derives and inserts new addresses when the count drops below `[pool].threshold`.
-4. Keeps the total at `[pool].target` addresses per chain.
+3. Derives and inserts new addresses when the count drops below `[ladon.pool].threshold`.
+4. Keeps the total at `[ladon.pool].target` addresses per chain.
 
-Available rows have `is_used IS NULL`. When assigning an address, your application should retrieve the oldest available row first, ordered by ascending `index` per chain. Then either set `is_used = true` or delete the assigned row.
+Available rows have `is_used IS NULL`. When assigning an address, your application
+should retrieve the oldest available row first, ordered by ascending `index` per chain.
+Then either set `is_used = true` or delete the assigned row.
 
-Marking assigned rows with `is_used = true` is the safest mode: used rows no longer count toward the available pool, but they still preserve the maximum generated `index`. If your application deletes assigned rows instead, at least one highest-index row must remain in the table for each chain. Otherwise Ladon cannot distinguish a never-filled pool from a fully-consumed pool and will restart generation at the chain's configured `start_index` value, which defaults to `0`.
+Marking assigned rows with `is_used = true` is the safest mode: used rows no longer
+count toward the available pool, but they still preserve the maximum generated `index`.
+If your application deletes assigned rows instead, at least one highest-index row must
+remain in the table for each chain. Otherwise Ladon cannot distinguish a never-filled
+pool from a fully-consumed pool and will restart generation at the chain's configured
+`start_index` value, which defaults to `0`.
 
-Set `start_index` on a `[[derive.chains]]` entry to control the first index generated for a brand-new chain pool. Once any row exists for that chain, Ladon always continues from `MAX(index) + 1`.
+Set `start_index` on a `[[ladon.derive.chains]]` entry to control the first index
+generated for a brand-new chain pool. Once any row exists for that chain, Ladon always
+continues from `MAX(index) + 1`.
 
 ### Example Config.toml (pool mode)
 
 ```toml
-# ── Derivation ──────────────────────────────────────────────────────────────────
-[derive]
+[ladon]
+store = "ladon"
 
-# How to obtain the master secret.  Supported "kind" values:
-#   "env"        — mnemonic from an environment variable
-#   "xpriv_env"  — raw hex xpriv from an environment variable
-#   "file"       — mnemonic read from a plain-text file
-[derive.secret]
+[ladon.derive.secret]
 kind = "env"
 var  = "LADON_MNEMONIC"
-# Optional: BIP-39 passphrase read from a separate env var
-# passphrase_var = "LADON_PASSPHRASE"
 
-# One [[derive.chains]] section per blockchain.
-[[derive.chains]]
-name    = "evm"
-account = 0
-change  = 0
-# start_index = 1   # first generated pool index when this chain has no rows
+[[ladon.derive.chains]]
+name = "evm"
+start_index = 1
 
-[[derive.chains]]
-name        = "solana"
-account     = 0
-change      = 0
-# start_index = 1
-solana_mode = "cold-export"   # "full" | "cold-export" | "hsm-sim" | "pda"
-# program_id = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+[ladon.pool]
+target        = 1000
+threshold     = 200
+batch         = 100
+interval_secs = 10
 
-# [[derive.chains]]
-# name    = "btc"
-# account = 0
-# change  = 0
-# start_index = 1
-# network = "bitcoin"   # "bitcoin" | "testnet" | "signet" | "regtest"
-
-# ── Pool daemon ─────────────────────────────────────────────────────────────────
-[pool]
-target        = 1000   # keep this many addresses in the pool at all times
-threshold     = 200    # start refilling when the count drops below this
-batch         = 100    # derive this many at a time
-interval_secs = 10     # poll the database every N seconds
-
-# ── Database — SQLite ───────────────────────────────────────────────────────────
-[database.sqlite]
-path = "data/addresses.db"
-
-[database.sqlite.table]
+[ladon.table]
 name = "derived_addresses"
 
-[database.sqlite.table.columns]
+[ladon.table.columns]
 id         = "id"
 chain      = "chain"
 address    = "address"
@@ -183,24 +199,163 @@ index      = "index"
 is_used    = "is_used"
 created_at = "created_at"
 
-# ── Database — Postgres (comment out the sqlite section above if using this) ────
-# [database.postgres]
-# url      = "postgres://user:password@localhost:5432/ladon"
-# # Alternatively, set the env var DATABASE_URL and omit `url` here.
-# # url_env  = "DATABASE_URL"
-# pool_size = 5
-#
-# [database.postgres.table]
-# name = "derived_addresses"
-#
-# [database.postgres.table.columns]
-# id         = "id"
-# chain      = "chain"
-# address    = "address"
-# path       = "path"
-# index      = "index"
-# is_used    = "is_used"
-# created_at = "created_at"
+[stores.ladon]
+driver = "sqlite"
+url = "sqlite://data/ladon/addresses.db"
+```
+
+---
+
+## Universal integration config
+
+Ladon can share a merged `Config.toml` with other packages (Pano, Bria, Oracles).
+In that case the file contains shared root sections (`[stores]`, `[chains]`, …) plus
+package-specific namespaces (`[ladon]`, `[pano]`, …).
+
+```sh
+ladon --config ../Config.toml pool
+```
+
+Ladon reads:
+- `[stores.<id>]` — resolved via `[ladon].store` (defaults to `"ladon"`)
+- `[ladon]` — all pool/derivation/table settings
+- `[chains.<id>]` — optional shared chain metadata referenced via `chain = "<id>"` in
+  `[[ladon.derive.chains]]`
+
+Ladon ignores `[pano]`, `[bria]`, and `[oracles]` sections. Unknown fields inside
+`[ladon]` are rejected with an actionable error.
+
+### Environment variable expansion
+
+Config values support `${VAR}` and `${VAR:-default}` syntax:
+
+```toml
+[ladon.derive.secret]
+kind = "env"
+var = "${LADON_MNEMONIC_VAR_NAME}"
+```
+
+```toml
+[stores.ladon]
+driver = "postgres"
+url = "${DATABASE_URL:-postgres://localhost/ladon}"
+```
+
+A missing `${VAR}` without a default fails with an error naming the variable.
+
+---
+
+## Package-specific configuration reference
+
+### `[ladon]`
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `enabled` | `true` | Whether deployment tooling should start Ladon |
+| `store` | `"ladon"` | Store id from `[stores]` used by pool mode |
+
+### `[ladon.derive]`
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `format` | `"json"` | Default output format: `json`, `csv`, `text` |
+| `strength` | `12` | Mnemonic word count: `12` or `24` |
+| `account` | `0` | Default BIP-44 account |
+| `change` | `0` | Default BIP-44 change branch |
+| `num` | `1` | Default number of addresses |
+| `encrypt` | `false` | Whether to encrypt output by default |
+
+### `[ladon.derive.secret]`
+
+| Key | Description |
+|-----|-------------|
+| `kind` | `"env"` (mnemonic from env var), `"xpriv_env"` (raw hex xpriv), or `"file"` (mnemonic from file) |
+| `var` | Environment variable name (for `env` and `xpriv_env`) |
+| `passphrase_var` | Optional BIP-39 passphrase env var |
+| `path` | File path (for `file` kind) |
+
+### `[[ladon.derive.chains]]`
+
+One entry per blockchain.
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `name` | — | `"evm"`, `"btc"`, or `"solana"` |
+| `chain` | `""` | Optional shared chain id from `[chains.<id>]` |
+| `account` | `0` | BIP-44 account |
+| `change` | `0` | BIP-44 change branch |
+| `start_index` | `0` | First pool index for a new chain |
+| `network` | `"bitcoin"` | BTC network: `bitcoin`, `testnet`, `signet`, `regtest` |
+| `solana_mode` | `"full"` | Solana mode: `full`, `cold-export`, `hsm-sim`, `pda` |
+| `program_id` | `""` | Base58 program ID for PDA mode |
+
+### `[ladon.pool]`
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `target` | `1000` | Keep this many addresses in the pool |
+| `threshold` | `200` | Refill when count drops below this |
+| `batch` | `100` | Derive this many at a time |
+| `interval_secs` | `10` | Poll database every N seconds |
+
+### `[ladon.table]`
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `name` | `"derived_addresses"` | Address pool table name |
+
+### `[ladon.table.columns]`
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `id` | `"id"` | Primary key column (ULID text) |
+| `chain` | `"chain"` | Chain identifier column |
+| `address` | `"address"` | Address column |
+| `path` | `"path"` | Derivation path column |
+| `index` | `"index"` | HD index column |
+| `is_used` | `"is_used"` | Usage marker (NULL = available) |
+| `created_at` | `"created_at"` | ISO-8601 creation timestamp |
+
+### `[stores.<id>]`
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `driver` | — | `"sqlite"` or `"postgres"` |
+| `url` | — | Connection URL. SQLite: `sqlite://path`; Postgres: `postgres://…` |
+| `migrate` | `true` | Whether to create/update schema automatically |
+| `connect_timeout_secs` | `10` | Connection open timeout |
+| `max_connections` | `1` (SQLite), `5` (Postgres) | Maximum connections |
+
+---
+
+## Database backends
+
+### SQLite (default)
+
+No extra feature flags needed. SQLite is the default backend.
+
+```toml
+[stores.ladon]
+driver = "sqlite"
+url = "sqlite://data/ladon/addresses.db"
+max_connections = 1
+```
+
+### Postgres
+
+Requires `--features pg` or `--features postgres`. Without the feature, a
+Postgres store fails with a clear error:
+
+```text
+Store `ladon` requires driver `postgres`, but the `pg`/`postgres` feature is
+not enabled. Recompile with `--features pg` or `--features postgres`.
+```
+
+```toml
+[stores.ladon]
+driver = "postgres"
+url = "${DATABASE_URL}"
+max_connections = 5
 ```
 
 ---
@@ -246,8 +401,10 @@ docker compose -f deploy/docker-compose.yml up -d
 
 Set `LADON_IMAGE` and `LADON_MNEMONIC` in the environment or in `deploy/.env`.
 The compose file points `DATABASE_URL` at its bundled Postgres service. Edit it
-if you want to use an external database. The container uses
-`restart: unless-stopped` so it recovers automatically.
+if you want to use an external database.
+The container uses `restart: unless-stopped` so it recovers automatically.
+
+---
 
 ## Systemd (bare-metal)
 
@@ -267,7 +424,7 @@ RUST_LOG=ladon=info
 
 ---
 
-## Library Usage (Rust)
+## Library
 
 ```rust
 use ladon::{derive, decrypt_data, encrypt_data, Params, WalletOutput};
@@ -285,7 +442,21 @@ for key in &wallet.keys {
 
 ---
 
-## Chains and Derivation Paths
+## Environment variables
+
+| Variable | Used by | Description |
+|----------|---------|-------------|
+| `LADON_MNEMONIC` | pool / config | BIP-39 mnemonic (when `[ladon.derive.secret].kind = "env"`) |
+| `LADON_PASSPHRASE` | pool / config | Optional BIP-39 passphrase |
+| `DATABASE_URL` | pool / pg config | Postgres connection URL (fallback) |
+| `RUST_LOG` | all | Tracing filter (e.g. `ladon=info`) |
+
+Config values may reference any environment variable with `${VAR}` or
+`${VAR:-default}` syntax.
+
+---
+
+## Chains & derivation paths
 
 | Chain | Default path |
 |-------|-------------|
@@ -295,10 +466,27 @@ for key in &wallet.keys {
 
 ---
 
-## Security Notes
+## Security notes
 
 - Private keys are **zeroized on drop**.
 - Use `--solana-mode cold-export` or `--encrypt` when storing derive output.
-- `--password` on the CLI is visible in shell history. Prefer environment-specific secret management (`LADON_MNEMONIC`, vault agents, etc.) in automation.
+- `--password` on the CLI is visible in shell history. Prefer environment-specific
+  secret management (`LADON_MNEMONIC`, vault agents, etc.) in automation.
 - Ed25519 derivation follows **SLIP-0010** (all path segments hardened).
-- In the pool daemon, the mnemonic is never written to disk — it lives only in the process environment.
+- In the pool daemon, the mnemonic is never written to disk — it lives only
+  in the process environment.
+
+---
+
+## Development
+
+```sh
+# Run all tests (default features: pool + sqlite)
+cargo test
+
+# Run with Postgres feature
+cargo test --features pg
+
+# Build the library only (no tokio/sqlx dependency)
+cargo build --lib --no-default-features
+```

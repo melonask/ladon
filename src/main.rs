@@ -26,13 +26,16 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Cmd {
+    /// Print "pong" and exit. Intended for container healthchecks.
+    Ping,
+
     /// Derive addresses and write to stdout (redirect to file as needed).
     Derive(Box<DeriveArgs>),
 
     /// Decrypt an encrypted wallet file.
     Decrypt(DecryptArgs),
 
-    /// Run the address-pool daemon (requires a config file with `[database]`).
+    /// Run the address-pool daemon (requires a config file with `[ladon]`).
     Pool,
 }
 
@@ -145,6 +148,10 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.cmd {
+        Some(Cmd::Ping) => {
+            println!("pong");
+            Ok(())
+        }
         Some(Cmd::Derive(args)) => cmd_derive(*args),
         Some(Cmd::Decrypt(args)) => cmd_decrypt(args),
         Some(Cmd::Pool) | None => cmd_pool(cli.config).await,

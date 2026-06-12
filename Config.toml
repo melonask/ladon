@@ -1,27 +1,45 @@
 # ── ladon Config.toml ──────────────────────────────────────────────────────────
-# Every setting has a default; uncomment and adjust only what you need.
+# This is the standalone config file for Ladon.  It works with:
+#   ladon --config Config.toml
+#
+# For multi-package deployments, a merged Config.toml with shared [stores] and
+# other universal sections can be used instead.  Ladon loads the [ladon]
+# namespace and resolves [stores.<id>] from the shared root; it ignores
+# [pano], [bria], and [oracles] sections.
+
+# ── Ladon namespace ────────────────────────────────────────────────────────────
+
+[ladon]
+# Store id from [stores] used by pool mode (default: "ladon").
+# When no [stores] section is present a SQLite store is created automatically.
+store = "ladon"
 
 # ── Derivation ──────────────────────────────────────────────────────────────────
-[derive]
+
+[ladon.derive]
+# Default output format: json, csv, or text.
+format = "json"
+# Number of mnemonic words when generating a new mnemonic: 12 or 24.
+strength = 12
 
 # How to obtain the master secret.  Supported "kind" values:
 #   "env"        — mnemonic from an environment variable
 #   "xpriv_env"  — raw hex xpriv from an environment variable
 #   "file"       — mnemonic read from a plain-text file
-[derive.secret]
+[ladon.derive.secret]
 kind = "env"
 var  = "LADON_MNEMONIC"
 # Optional: BIP-39 passphrase read from a separate env var
 # passphrase_var = "LADON_PASSPHRASE"
 
-# One [[derive.chains]] section per blockchain.
-[[derive.chains]]
+# One [[ladon.derive.chains]] section per blockchain.
+[[ladon.derive.chains]]
 name    = "evm"
 account = 0
 change  = 0
 # start_index = 1   # first generated pool index when this chain has no rows
 
-[[derive.chains]]
+[[ladon.derive.chains]]
 name        = "solana"
 account     = 0
 change      = 0
@@ -29,7 +47,7 @@ change      = 0
 solana_mode = "cold-export"   # "full" | "cold-export" | "hsm-sim" | "pda"
 # program_id = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
 
-# [[derive.chains]]
+# [[ladon.derive.chains]]
 # name    = "btc"
 # account = 0
 # change  = 0
@@ -37,20 +55,19 @@ solana_mode = "cold-export"   # "full" | "cold-export" | "hsm-sim" | "pda"
 # network = "bitcoin"   # "bitcoin" | "testnet" | "signet" | "regtest"
 
 # ── Pool daemon ─────────────────────────────────────────────────────────────────
-[pool]
+
+[ladon.pool]
 target        = 1000   # keep this many addresses in the pool at all times
 threshold     = 200    # start refilling when the count drops below this
 batch         = 100    # derive this many at a time
 interval_secs = 10     # poll the database every N seconds
 
-# ── Database — SQLite ───────────────────────────────────────────────────────────
-[database.sqlite]
-path = "data/addresses.db"
+# ── Table / column names ────────────────────────────────────────────────────────
 
-[database.sqlite.table]
+[ladon.table]
 name = "derived_addresses"
 
-[database.sqlite.table.columns]
+[ladon.table.columns]
 id         = "id"
 chain      = "chain"
 address    = "address"
@@ -59,21 +76,25 @@ index      = "index"
 is_used    = "is_used"
 created_at = "created_at"
 
-# ── Database — Postgres (comment out the sqlite section above if using this) ────
-# [database.postgres]
-# url      = "postgres://user:password@localhost:5432/ladon"
-# # Alternatively, set the env var DATABASE_URL and omit `url` here.
-# # url_env  = "DATABASE_URL"
-# pool_size = 5
+# ── Store (database connection) ─────────────────────────────────────────────────
+# When a [stores] section is present, Ladon resolves [ladon].store against it.
+# Omitting [stores] defaults to SQLite at data/ladon/addresses.db.
+
+[stores.ladon]
+driver = "sqlite"
+url = "sqlite://data/ladon/addresses.db"
+# migrate = true           # create/update schema automatically
+# connect_timeout_secs = 10
+# max_connections = 1      # keep at 1 for SQLite
+
+# ── Optional Postgres store (requires --features pg or --features postgres) ────
+# Comment out the [stores.ladon] section above and uncomment below for Postgres.
 #
-# [database.postgres.table]
-# name = "derived_addresses"
-#
-# [database.postgres.table.columns]
-# id         = "id"
-# chain      = "chain"
-# address    = "address"
-# path       = "path"
-# index      = "index"
-# is_used    = "is_used"
-# created_at = "created_at"
+# [stores.ladon]
+# driver = "postgres"
+# url = "${DATABASE_URL:-}"
+# # Alternatively, set url directly:
+# # url = "postgres://user:password@localhost:5432/ladon"
+# migrate = true
+# connect_timeout_secs = 10
+# max_connections = 5

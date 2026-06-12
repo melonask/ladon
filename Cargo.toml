@@ -1,15 +1,25 @@
 [package]
 name        = "ladon"
-version     = "0.2.6"
+version     = "0.2.7"
 edition     = "2024"
 authors     = ["Melon Ask"]
 description = "Fast multi-chain HD wallet CLI and address-pool daemon: EVM, Bitcoin, Solana"
 license     = "MIT"
 repository  = "https://github.com/melonask/ladon"
+readme      = "README.md"
 homepage    = "https://github.com/melonask/ladon"
 keywords    = ["crypto", "hd-wallet", "ethereum", "bitcoin", "solana"]
 categories  = ["command-line-utilities", "cryptography"]
 rust-version = "1.96"
+
+[features]
+# SQLite-backed pool mode is the default. Use --features pg for Postgres.
+default = ["pool", "sqlite"]
+pool = ["dep:tokio", "dep:sqlx", "dep:ulid", "dep:chrono"]
+sqlite = ["pool", "sqlx/sqlite"]
+postgres = ["pool", "sqlx/postgres"]
+pg = ["postgres"]
+full = ["sqlite", "postgres"]
 
 # ── Crypto / HD wallet ──────────────────────────────────────────────────────────
 [dependencies]
@@ -24,24 +34,24 @@ aes-gcm       = "0.10"
 scrypt        = "0.12"
 hex           = "0.4"
 base64        = "0.22"
-rand          = "0.8"
+rand          = "0.10"
 zeroize       = { version = "1.8", features = ["derive"] }
 
 # ── Serialisation ───────────────────────────────────────────────────────────────
 serde      = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-toml       = "0.8"
+toml       = "1.1"
 
 # ── CLI ─────────────────────────────────────────────────────────────────────────
 clap = { version = "4.5", features = ["derive", "env"] }
 
-# ── Async runtime ───────────────────────────────────────────────────────────────
-tokio = { version = "1.44", features = ["full"] }
+# ── Async runtime (pool feature) ────────────────────────────────────────────────
+tokio = { version = "1.52", features = ["rt-multi-thread", "macros", "time", "signal"], optional = true }
 
-# ── Database (feature-gated so the lib stays lean) ──────────────────────────────
-sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "any", "sqlite", "postgres", "uuid", "chrono"], default-features = false }
-ulid = "1.2"
-chrono = { version = "0.4", default-features = false, features = ["clock"] }
+# ── Database (pool feature, feature-gated backends) ─────────────────────────────
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls", "any", "uuid", "chrono"], optional = true }
+ulid = { version = "1.2", optional = true }
+chrono = { version = "0.4", default-features = false, features = ["clock"], optional = true }
 
 # ── Observability ───────────────────────────────────────────────────────────────
 tracing            = "0.1"
@@ -58,6 +68,7 @@ path = "src/lib.rs"
 [[bin]]
 name = "ladon"
 path = "src/main.rs"
+required-features = ["pool"]
 
 [profile.release]
 opt-level     = "z"
@@ -68,4 +79,10 @@ panic         = "abort"
 
 [dev-dependencies]
 serde_json = "1.0"
-tokio      = { version = "1.44", features = ["full"] }
+tokio      = { version = "1.52", features = ["rt-multi-thread", "macros", "time", "signal"] }
+
+[lints.rust]
+unused_must_use = "deny"
+# Documentation standardization target: add public API docs, then enable
+# `missing_docs = "warn"` to match the strict documentation posture used by
+# crates with complete public item coverage.

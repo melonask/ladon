@@ -42,6 +42,11 @@ RUN mkdir -p /app/data /etc/ladon \
 
 COPY --from=builder /build/target/release/ladon /usr/local/bin/ladon
 
+LABEL org.opencontainers.image.title="Ladon" \
+      org.opencontainers.image.description="Fast multi-chain HD wallet CLI and address-pool daemon" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.source="https://github.com/melonask/ladon"
+
 USER ladon
 
 ENV LADON_CONFIG=/etc/ladon/Config.toml
