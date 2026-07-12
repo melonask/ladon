@@ -14,11 +14,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7.0.0
 
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2.9.1
 
       - name: Check formatting
         run: cargo fmt --check
@@ -36,14 +38,16 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        rust: ["1.96", stable, beta]
+        rust: ["1.97.0", stable, beta]
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7.0.0
 
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ matrix.rust }}
+
+      - uses: Swatinem/rust-cache@v2.9.1
 
       - name: Build
         run: cargo build --verbose
@@ -55,12 +59,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7.0.0
 
       - uses: dtolnay/rust-toolchain@stable
 
         with:
           components: rustfmt
+
+      - uses: Swatinem/rust-cache@v2.9.1
 
       - name: Verify crate package
         run: cargo package --allow-dirty --verbose

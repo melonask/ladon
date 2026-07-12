@@ -31,10 +31,9 @@ impl Db {
         }
 
         if let Some(pg) = &cfg.postgres {
-            let url = pg.url()?;
             let pool = AnyPoolOptions::new()
                 .max_connections(pg.pool_size)
-                .connect(&url)
+                .connect(&pg.url)
                 .await
                 .context("Postgres connection failed")?;
             info!("Connected to Postgres");
@@ -71,9 +70,8 @@ impl Db {
             is_used = self.cols.is_used,
             created_at = self.cols.created_at,
         );
-        // Table and column names are resolved from Ladon's strict config schema;
-        // value inputs remain bound parameters. SQLx 0.9 requires an explicit
-        // audit marker for dynamic identifier SQL.
+        // Identifiers passed this module only after config::validate_table_config;
+        // values remain bound parameters.
         sqlx::query(AssertSqlSafe(sql))
             .execute(&self.pool)
             .await

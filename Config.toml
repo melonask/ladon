@@ -1,27 +1,19 @@
 # ── ladon Config.toml ──────────────────────────────────────────────────────────
-# This is the standalone config file for Ladon.  It works with:
-#   ladon --config Config.toml
+# This is Ladon's universal configuration example. It works with:
+#   LADON_CONFIG=Config.toml ladon check
 #
-# For multi-package deployments, a merged Config.toml with shared [stores] and
-# other universal sections can be used instead.  Ladon loads the [ladon]
-# namespace and resolves [stores.<id>] from the shared root; it ignores
-# [pano], [bria], and [oracles] sections.
+# In a multi-package deployment this is merged into the universal Config.toml.
+# Ladon requires [ladon] and the selected shared [stores.<id>] entry.
 
 # ── Ladon namespace ────────────────────────────────────────────────────────────
 
 [ladon]
-# Store id from [stores] used by pool mode (default: "ladon").
-# When no [stores] section is present a SQLite store is created automatically.
+# Store id from the required shared [stores] namespace.
 store = "ladon"
 
 # ── Derivation ──────────────────────────────────────────────────────────────────
 
 [ladon.derive]
-# Default output format: json, csv, or text.
-format = "json"
-# Number of mnemonic words when generating a new mnemonic: 12 or 24.
-strength = 12
-
 # How to obtain the master secret.  Supported "kind" values:
 #   "env"        — mnemonic from an environment variable
 #   "xpriv_env"  — raw hex xpriv from an environment variable
@@ -35,12 +27,14 @@ var  = "LADON_MNEMONIC"
 # One [[ladon.derive.chains]] section per blockchain.
 [[ladon.derive.chains]]
 name    = "evm"
+chain   = "ethereum-mainnet"
 account = 0
 change  = 0
 # start_index = 1   # first generated pool index when this chain has no rows
 
 [[ladon.derive.chains]]
 name        = "solana"
+chain       = "solana-mainnet"
 account     = 0
 change      = 0
 # start_index = 1
@@ -49,6 +43,7 @@ solana_mode = "cold-export"   # "full" | "cold-export" | "hsm-sim" | "pda"
 
 # [[ladon.derive.chains]]
 # name    = "btc"
+# chain   = "bitcoin-mainnet"
 # account = 0
 # change  = 0
 # start_index = 1
@@ -77,24 +72,24 @@ is_used    = "is_used"
 created_at = "created_at"
 
 # ── Store (database connection) ─────────────────────────────────────────────────
-# When a [stores] section is present, Ladon resolves [ladon].store against it.
-# Omitting [stores] defaults to SQLite at data/ladon/addresses.db.
+# Ladon resolves [ladon].store against this required shared store entry.
 
 [stores.ladon]
 driver = "sqlite"
 url = "sqlite://data/ladon/addresses.db"
-# migrate = true           # create/update schema automatically
-# connect_timeout_secs = 10
-# max_connections = 1      # keep at 1 for SQLite
+max_connections = 1
+
+# ── Shared chain references ──────────────────────────────────────────────────────
+[chains.ethereum-mainnet]
+caip2 = "eip155:1"
+
+[chains.solana-mainnet]
+caip2 = "solana:mainnet"
 
 # ── Optional Postgres store (requires --features pg or --features postgres) ────
 # Comment out the [stores.ladon] section above and uncomment below for Postgres.
 #
 # [stores.ladon]
 # driver = "postgres"
-# url = "${DATABASE_URL:-}"
-# # Alternatively, set url directly:
-# # url = "postgres://user:password@localhost:5432/ladon"
-# migrate = true
-# connect_timeout_secs = 10
+# url must be a required DATABASE_URL environment reference.
 # max_connections = 5

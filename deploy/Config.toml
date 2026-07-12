@@ -10,15 +10,18 @@ var = "LADON_MNEMONIC"
 
 [[ladon.derive.chains]]
 name = "evm"
+chain = "ethereum-mainnet"
 # start_index = 1
 
 [[ladon.derive.chains]]
 name = "solana"
+chain = "solana-mainnet"
 solana_mode = "cold-export"
 # start_index = 1
 
 [[ladon.derive.chains]]
 name = "btc"
+chain = "bitcoin-mainnet"
 network = "bitcoin"
 # start_index = 1
 
@@ -44,4 +47,12 @@ created_at = "created_at"
 driver = "postgres"
 url = "${DATABASE_URL}"
 max_connections = 5
-connect_timeout_secs = 10
+
+[chains.ethereum-mainnet]
+caip2 = "eip155:1"
+
+[chains.solana-mainnet]
+caip2 = "solana:mainnet"
+
+[chains.bitcoin-mainnet]
+caip2 = "bip122:000000000019d6689c085ae165831e93"

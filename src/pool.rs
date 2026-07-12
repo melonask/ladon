@@ -48,14 +48,17 @@ async fn tick(cfg: &Config, db: &Db, chain_cfg: &ChainConfig) -> Result<()> {
     let batches = needed.div_ceil(cfg.pool.batch);
     info!(chain = %chain, pool = count, target = cfg.pool.target, "Refilling pool");
 
-    let next_index = next_index(db.max_index(&chain).await?, chain_cfg.start_index);
+    let next_index = next_index(db.max_index(&chain).await?, chain_cfg.start_index)?;
     let (mnemonic, passphrase, xpriv) = resolve_secret(&cfg.derive.secret)?;
 
     let mut global_idx = next_index;
     for batch_idx in 0..batches {
         let remaining = needed - (batch_idx * cfg.pool.batch);
         let batch_size = remaining.min(cfg.pool.batch);
-        let indexes: Vec<u32> = (global_idx..global_idx + batch_size).collect();
+        let end_index = global_idx
+            .checked_add(batch_size)
+            .context("address derivation index exhausted")?;
+        let indexes: Vec<u32> = (global_idx..end_index).collect();
         let index_str = indexes
             .iter()
             .map(|i| i.to_string())
@@ -82,7 +85,7 @@ async fn tick(cfg: &Config, db: &Db, chain_cfg: &ChainConfig) -> Result<()> {
             .keys
             .iter()
             .map(|k| AddressRow {
-                id: Ulid::new().to_string(),
+                id: Ulid::r#gen().to_string(),
                 chain: chain.clone(),
                 address: k.address.clone(),
                 path: k.path.clone(),
@@ -92,15 +95,21 @@ async fn tick(cfg: &Config, db: &Db, chain_cfg: &ChainConfig) -> Result<()> {
             .collect();
 
         let inserted = db.insert(&rows).await?;
-        global_idx += batch_size;
+        global_idx = end_index;
         info!(chain = %chain, inserted, "Batch inserted");
     }
 
     Ok(())
 }
 
-fn next_index(max_index: Option<u32>, start_index: u32) -> u32 {
-    max_index.map(|i| i + 1).unwrap_or(start_index)
+fn next_index(max_index: Option<u32>, start_index: u32) -> Result<u32> {
+    max_index
+        .map(|i| {
+            i.checked_add(1)
+                .context("address derivation index exhausted")
+        })
+        .transpose()
+        .map(|value| value.unwrap_or(start_index))
 }
 
 /// Resolve mnemonic / passphrase / xpriv from the configured [`SecretSource`].
@@ -148,11 +157,16 @@ mod tests {
 
     #[test]
     fn next_index_uses_start_index_when_chain_has_no_rows() {
-        assert_eq!(next_index(None, 1), 1);
+        assert_eq!(next_index(None, 1).unwrap(), 1);
     }
 
     #[test]
     fn next_index_continues_after_existing_max_index() {
-        assert_eq!(next_index(Some(7), 1), 8);
+        assert_eq!(next_index(Some(7), 1).unwrap(), 8);
+    }
+
+    #[test]
+    fn next_index_rejects_exhausted_index() {
+        assert!(next_index(Some(u32::MAX), 0).is_err());
     }
 }

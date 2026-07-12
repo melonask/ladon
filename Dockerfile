@@ -1,5 +1,5 @@
 # ── Build stage ──────────────────────────────────────────────────────────────
-ARG RUST_VERSION=1.96
+ARG RUST_VERSION=1.97
 FROM rust:${RUST_VERSION}-slim-bookworm AS builder
 
 WORKDIR /build
@@ -52,7 +52,7 @@ USER ladon
 ENV LADON_CONFIG=/etc/ladon/Config.toml
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-    CMD ["ladon", "ping"]
+    CMD ["ladon", "check"]
 
 ENTRYPOINT ["ladon"]
-CMD ["--config", "/etc/ladon/Config.toml"]
+CMD ["pool"]

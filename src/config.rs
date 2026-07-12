@@ -1,6 +1,5 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::path::Path;
 
 // ── Environment variable expansion ───────────────────────────────────────────
@@ -66,11 +65,9 @@ fn expand_env(raw: &str) -> Result<String> {
 
 // ── Top-level config (the public-facing type used by existing code) ──────────
 
-/// Root configuration loaded from a TOML file (universal or standalone).
+/// Root configuration loaded from a universal TOML file.
 ///
-/// Built by [`load`] from either:
-/// * A universal merged `Config.toml` with `[ladon]` + `[stores]` sections.
-/// * A standalone `Config.toml` with `[ladon]` + `[ladon.derive.*]` + `[ladon.pool]` …
+/// Built by [`load`] from a configuration with `[ladon]` and `[stores]` sections.
 #[derive(Debug, Clone)]
 pub struct Config {
     /// Derivation settings (mnemonic, chains, batch size, etc.)
@@ -83,50 +80,25 @@ pub struct Config {
     pub database: DbConfig,
 }
 
+/// Non-sensitive summary returned by [`check`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CheckReport {
+    pub store_driver: &'static str,
+    pub table: String,
+    pub chain_count: usize,
+    pub pool_target: u32,
+}
+
 // ── Derivation ───────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct DeriveConfig {
-    /// Default output format: `"json"`, `"csv"`, or `"text"`.
-    #[serde(default = "default_format")]
-    pub format: String,
-
-    /// Number of mnemonic words when generating a new mnemonic.
-    #[serde(default = "default_strength")]
-    pub strength: u32,
-
-    /// Default BIP-44 account for chains that do not override it.
-    #[serde(default)]
-    pub account: u32,
-
-    /// Default BIP-44 change for chains that do not override it.
-    #[serde(default)]
-    pub change: u32,
-
-    /// Default number of addresses for ad-hoc derivation.
-    #[serde(default = "default_num")]
-    pub num: u32,
-
-    /// Whether to encrypt generated output by default.
-    #[serde(default)]
-    pub encrypt: bool,
-
     /// Chains to generate addresses for, e.g. `["evm", "solana"]`.
     pub chains: Vec<ChainConfig>,
 
     /// Where to obtain the master secret.
     pub secret: SecretSource,
-}
-
-fn default_format() -> String {
-    "json".to_string()
-}
-fn default_strength() -> u32 {
-    12
-}
-fn default_num() -> u32 {
-    1
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -135,8 +107,7 @@ pub struct ChainConfig {
     /// `"evm"` | `"btc"` | `"solana"`
     pub name: String,
 
-    /// Optional shared chain id from `[chains.<id>]` (universal config only).
-    #[serde(default)]
+    /// Shared chain id from `[chains.<id>]`.
     pub chain: String,
 
     /// BIP-44 account (default `0`).
@@ -275,14 +246,8 @@ pub struct SqliteConfig {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PostgresConfig {
-    /// `postgres://user:password@host:5432/dbname`
-    /// May also be set via the `DATABASE_URL` environment variable; this field
-    /// takes precedence when both are present.
-    pub url: Option<String>,
-
-    /// Env var that holds the connection URL (alternative to inline `url`).
-    #[serde(default)]
-    pub url_env: Option<String>,
+    /// Resolved URL from the required `[stores.<id>].url` environment reference.
+    pub url: String,
 
     /// Connection-pool size (default: 5).
     #[serde(default = "default_pool_size")]
@@ -295,22 +260,12 @@ fn default_pool_size() -> u32 {
     5
 }
 
-impl PostgresConfig {
-    /// Resolve the connection URL from inline value or env var.
-    pub fn url(&self) -> Result<String> {
-        if let Some(u) = &self.url {
-            return Ok(u.clone());
-        }
-        if let Some(var) = &self.url_env {
-            return std::env::var(var).with_context(|| format!("env var `{var}` not set"));
-        }
-        std::env::var("DATABASE_URL").context(
-            "No postgres URL: set `database.postgres.url`, `database.postgres.url_env`, or `DATABASE_URL`",
-        )
-    }
-}
-
-/// Column / table names written to the database.
+/// Column and table identifiers written to the database.
+///
+/// # Safety
+/// SQL parameters cannot bind identifiers. These values cross Ladon's only
+/// dynamic-SQL trust boundary and are accepted only after ASCII identifier
+/// validation in [`validate_table_config`].
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct TableConfig {
@@ -379,13 +334,8 @@ fn col_created_at() -> String {
 /// Parsed with `deny_unknown_fields` so any stray key is rejected early.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
-#[allow(dead_code)]
 struct LadonNamespace {
-    #[serde(default)]
-    enabled: bool,
-
-    /// Store id from `[stores]` used by pool mode (default: `"ladon"`).
-    #[serde(default = "default_ladon_store_id")]
+    /// Store id from `[stores]` used by pool mode.
     store: String,
 
     #[serde(default)]
@@ -398,30 +348,14 @@ struct LadonNamespace {
     table: Option<TableConfig>,
 }
 
-fn default_ladon_store_id() -> String {
-    "ladon".to_string()
-}
-
 /// A single `[stores.<id>]` entry.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
-#[allow(dead_code)]
 struct StoreEntry {
     driver: String,
     url: String,
-    #[serde(default)]
-    migrate: bool,
-    #[serde(default = "default_connect_timeout")]
-    connect_timeout_secs: u64,
-    #[serde(default = "default_store_max_conn")]
+    #[serde(default = "default_pool_size")]
     max_connections: u32,
-}
-
-fn default_connect_timeout() -> u64 {
-    10
-}
-fn default_store_max_conn() -> u32 {
-    1
 }
 
 // ── Loader ───────────────────────────────────────────────────────────────────
@@ -450,11 +384,6 @@ fn default_store_max_conn() -> u32 {
 /// name = "evm"
 /// ```
 ///
-/// **Standalone config** — the `[ladon]` namespace is still expected at the top
-/// level, but the file may omit shared `[stores]` and instead define every
-/// required value inside `[ladon]` directly (with inline store url etc.).  The
-/// loader resolves the store id against `[stores]`; if the store is absent it
-/// falls back to a SQLite store derived from `[ladon.table]` defaults.
 pub fn load(path: &Path) -> Result<Config> {
     let raw = std::fs::read_to_string(path)
         .with_context(|| format!("Failed to read config: {}", path.display()))?;
@@ -463,25 +392,23 @@ pub fn load(path: &Path) -> Result<Config> {
     let expanded = expand_env(&raw)
         .with_context(|| format!("Environment expansion failed in {}", path.display()))?;
 
-    // 2. Parse the whole TOML into a generic value tree.  We intentionally do
-    //    NOT use deny_unknown_fields here so that unrelated package
-    //    namespaces ([pano], [bria], [oracles]) are silently ignored.
+    // Parse the root loosely so independently owned namespaces remain forward-compatible.
     let root: toml::Value = toml::from_str(&expanded)
-        .with_context(|| format!("Failed to parse config: {}", path.display()))?;
+        .map_err(|_| anyhow::anyhow!("Failed to parse config: {}", path.display()))?;
 
     // 3. Extract the `[ladon]` namespace and parse it strictly.
     let ladon_val = root
         .get("ladon")
         .cloned()
-        .unwrap_or(toml::Value::Table(toml::Table::new()));
+        .ok_or_else(|| anyhow::anyhow!("Missing required [ladon] section in {}", path.display()))?;
 
     // Re-serialise the ladon sub-table so we can parse it with serde +
     // deny_unknown_fields.  This catches stray keys inside [ladon].
     let ladon_toml =
         toml::to_string_pretty(&ladon_val).context("Failed to re-serialise [ladon] section")?;
 
-    let ladon: LadonNamespace = toml::from_str(&ladon_toml).with_context(|| {
-        format!(
+    let ladon: LadonNamespace = toml::from_str(&ladon_toml).map_err(|_| {
+        anyhow::anyhow!(
             "Invalid [ladon] section in {} — unknown or malformed fields",
             path.display()
         )
@@ -489,21 +416,18 @@ pub fn load(path: &Path) -> Result<Config> {
 
     // 4. Resolve the store.
     let store_id = &ladon.store;
-    let stores: HashMap<String, StoreEntry> = root
+    let stores_table = root
         .get("stores")
-        .and_then(|v| v.as_table())
-        .map(|tbl| {
-            tbl.iter()
-                .filter_map(|(k, v)| {
-                    let entry: StoreEntry =
-                        toml::from_str(&toml::to_string_pretty(v).ok()?).ok()?;
-                    Some((k.clone(), entry))
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-
-    let store = stores.get(store_id).cloned();
+        .and_then(toml::Value::as_table)
+        .ok_or_else(|| anyhow::anyhow!("Missing required [stores] section"))?;
+    let store_value = stores_table.get(store_id).ok_or_else(|| {
+        anyhow::anyhow!("[ladon].store `{store_id}` does not reference an entry in [stores]")
+    })?;
+    let store: StoreEntry = toml::to_string_pretty(store_value)
+        .ok()
+        .and_then(|value| toml::from_str(&value).ok())
+        .ok_or_else(|| anyhow::anyhow!("Invalid [stores.{store_id}] section"))?;
+    validate_store_reference(&raw, store_id, &store)?;
 
     // 5. Build the internal DbConfig.
     let table = ladon.table.clone().unwrap_or(TableConfig {
@@ -522,24 +446,11 @@ pub fn load(path: &Path) -> Result<Config> {
     let database = build_db_config(store, store_id, &table)?;
 
     // 6. Build the internal DeriveConfig and PoolConfig.
-    let derive = ladon.derive.unwrap_or(DeriveConfig {
-        format: default_format(),
-        strength: default_strength(),
-        account: 0,
-        change: 0,
-        num: default_num(),
-        encrypt: false,
-        chains: vec![],
-        secret: SecretSource::Env {
-            var: "LADON_MNEMONIC".to_string(),
-            passphrase_var: None,
-        },
-    });
+    let derive = ladon
+        .derive
+        .ok_or_else(|| anyhow::anyhow!("Missing required [ladon.derive] section"))?;
 
-    // 7. Validate optional universal chain references. `name` remains Ladon's
-    //    local derivation selector (`evm`, `btc`, `solana`), while `chain`
-    //    points at shared metadata in `[chains.<id>]` when present in a merged
-    //    integration config. Empty `chain` means "no shared reference".
+    // 7. Validate required universal chain references.
     let shared_chain_ids = root
         .get("chains")
         .and_then(|v| v.as_table())
@@ -551,7 +462,7 @@ pub fn load(path: &Path) -> Result<Config> {
         .unwrap_or_default();
 
     for chain_cfg in &derive.chains {
-        if !chain_cfg.chain.is_empty() && !shared_chain_ids.contains(&chain_cfg.chain) {
+        if !shared_chain_ids.contains(&chain_cfg.chain) {
             anyhow::bail!(
                 "chain reference `{}` in [[ladon.derive.chains]] for local chain `{}` not found in [chains.{}]",
                 chain_cfg.chain,
@@ -561,7 +472,9 @@ pub fn load(path: &Path) -> Result<Config> {
         }
     }
 
-    let pool = ladon.pool.unwrap_or_default();
+    let pool = ladon
+        .pool
+        .ok_or_else(|| anyhow::anyhow!("Missing required [ladon.pool] section"))?;
 
     let cfg = Config {
         derive,
@@ -569,19 +482,137 @@ pub fn load(path: &Path) -> Result<Config> {
         database,
     };
     cfg.database.validate()?;
+    validate_operation_config(&cfg)?;
     Ok(cfg)
 }
 
-/// Build a [`DbConfig`] from an optional resolved [`StoreEntry`] and a [`TableConfig`].
-fn build_db_config(
-    store: Option<StoreEntry>,
-    store_id: &str,
-    table: &TableConfig,
-) -> Result<DbConfig> {
+/// Validate a universal configuration and verify that declared secret references
+/// are available. The returned report intentionally contains no secret material.
+pub fn check(path: &Path) -> Result<CheckReport> {
+    let cfg = load(path)?;
+    validate_secret_reference(&cfg.derive.secret)?;
+    let (store_driver, table) = match &cfg.database {
+        DbConfig {
+            sqlite: Some(sqlite),
+            ..
+        } => ("sqlite", sqlite.table.name.clone()),
+        DbConfig {
+            postgres: Some(postgres),
+            ..
+        } => ("postgres", postgres.table.name.clone()),
+        _ => anyhow::bail!("database backend validation failed"),
+    };
+    Ok(CheckReport {
+        store_driver,
+        table,
+        chain_count: cfg.derive.chains.len(),
+        pool_target: cfg.pool.target,
+    })
+}
+
+fn validate_store_reference(raw: &str, store_id: &str, store: &StoreEntry) -> Result<()> {
+    if store.driver != "postgres" {
+        return Ok(());
+    }
+    let raw_root: toml::Value = toml::from_str(raw).map_err(|_| {
+        anyhow::anyhow!("Failed to parse configuration while validating store references")
+    })?;
+    let url = raw_root
+        .get("stores")
+        .and_then(toml::Value::as_table)
+        .and_then(|stores| stores.get(store_id))
+        .and_then(toml::Value::as_table)
+        .and_then(|store| store.get("url"))
+        .and_then(toml::Value::as_str)
+        .ok_or_else(|| anyhow::anyhow!("[stores.{store_id}].url must be a string"))?;
+    let Some(variable) = url
+        .strip_prefix("${")
+        .and_then(|value| value.strip_suffix('}'))
+    else {
+        anyhow::bail!(
+            "[stores.{store_id}].url must be an environment reference such as `${{DATABASE_URL}}`; inline PostgreSQL credentials are not allowed"
+        );
+    };
+    if variable.is_empty() || variable.contains(":-") || !is_env_name(variable) {
+        anyhow::bail!(
+            "[stores.{store_id}].url must reference one environment variable without a default"
+        );
+    }
+    Ok(())
+}
+
+fn validate_operation_config(cfg: &Config) -> Result<()> {
+    if cfg.derive.chains.is_empty() {
+        anyhow::bail!("[ladon.derive.chains] must contain at least one chain")
+    }
+    if cfg.pool.batch == 0
+        || cfg.pool.target == 0
+        || cfg.pool.threshold > cfg.pool.target
+        || cfg.pool.interval_secs == 0
+    {
+        anyhow::bail!(
+            "[ladon.pool] requires target > 0, batch > 0, interval_secs > 0, and threshold <= target"
+        )
+    }
+    let mut names = std::collections::HashSet::new();
+    for chain in &cfg.derive.chains {
+        let canonical = ladon::canonical_chain(&chain.name)?;
+        if !names.insert(canonical) {
+            anyhow::bail!(
+                "[ladon.derive.chains] contains duplicate chain `{}`",
+                chain.name
+            )
+        }
+    }
+    Ok(())
+}
+
+fn validate_secret_reference(source: &SecretSource) -> Result<()> {
+    match source {
+        SecretSource::Env {
+            var,
+            passphrase_var,
+        } => {
+            std::env::var_os(var)
+                .ok_or_else(|| anyhow::anyhow!("Secret environment variable `{var}` is not set"))?;
+            if let Some(passphrase_var) = passphrase_var {
+                std::env::var_os(passphrase_var).ok_or_else(|| {
+                    anyhow::anyhow!("Passphrase environment variable `{passphrase_var}` is not set")
+                })?;
+            }
+        }
+        SecretSource::XprivEnv { var } => {
+            std::env::var_os(var)
+                .ok_or_else(|| anyhow::anyhow!("Secret environment variable `{var}` is not set"))?;
+        }
+        SecretSource::File {
+            path,
+            passphrase_var,
+        } => {
+            std::fs::File::open(path)
+                .with_context(|| format!("Cannot open secret file `{path}`"))?;
+            if let Some(passphrase_var) = passphrase_var {
+                std::env::var_os(passphrase_var).ok_or_else(|| {
+                    anyhow::anyhow!("Passphrase environment variable `{passphrase_var}` is not set")
+                })?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn is_env_name(value: &str) -> bool {
+    value.bytes().enumerate().all(|(index, byte)| {
+        byte == b'_' || byte.is_ascii_uppercase() || (index > 0 && byte.is_ascii_digit())
+    })
+}
+
+/// Build a [`DbConfig`] from a resolved [`StoreEntry`] and a [`TableConfig`].
+fn build_db_config(store: StoreEntry, store_id: &str, table: &TableConfig) -> Result<DbConfig> {
     validate_table_config(table)?;
 
     match store {
-        Some(s) if s.driver == "sqlite" => {
+        s if s.driver == "sqlite" => {
             // Extract the file path from the SQLite URL.  sqlx expects
             // `sqlite://path` where path may be absolute or relative.
             let path = s
@@ -597,7 +628,7 @@ fn build_db_config(
                 postgres: None,
             })
         }
-        Some(s) if s.driver == "postgres" => {
+        s if s.driver == "postgres" => {
             // Feature-gate check: postgres requires the `pg` or `postgres` feature.
             if !(cfg!(feature = "postgres") || cfg!(feature = "pg")) {
                 anyhow::bail!(
@@ -609,30 +640,17 @@ fn build_db_config(
             Ok(DbConfig {
                 sqlite: None,
                 postgres: Some(PostgresConfig {
-                    url: Some(s.url),
-                    url_env: None,
+                    url: s.url,
                     pool_size: s.max_connections,
                     table: table.clone(),
                 }),
             })
         }
-        Some(s) => {
+        s => {
             anyhow::bail!(
                 "Store `{store_id}` has unsupported driver `{}`. Use `sqlite` or `postgres`.",
                 s.driver
             )
-        }
-        None => {
-            // No store found — default to SQLite with a path derived from
-            // the store id, in a `data/` subdirectory.
-            let path = format!("data/{store_id}/addresses.db");
-            Ok(DbConfig {
-                sqlite: Some(SqliteConfig {
-                    path,
-                    table: table.clone(),
-                }),
-                postgres: None,
-            })
         }
     }
 }
@@ -649,6 +667,11 @@ fn validate_table_config(table: &TableConfig) -> Result<()> {
     Ok(())
 }
 
+/// Validate an identifier before it is interpolated into Ladon's SQL templates.
+///
+/// This is the sole identifier trust boundary: database values are always bound
+/// separately, while schema identifiers must be ASCII letters, digits, or
+/// underscores and begin with a letter or underscore.
 fn validate_sql_identifier(path: &str, value: &str) -> Result<()> {
     let mut chars = value.chars();
     let Some(first) = chars.next() else {
@@ -747,12 +770,10 @@ mod tests {
         let store = StoreEntry {
             driver: "sqlite".to_string(),
             url: "sqlite://data/ladon/addresses.db".to_string(),
-            migrate: true,
-            connect_timeout_secs: 10,
             max_connections: 1,
         };
         let table = default_table();
-        let db = build_db_config(Some(store), "ladon", &table).unwrap();
+        let db = build_db_config(store, "ladon", &table).unwrap();
         db.validate().unwrap();
         assert!(db.sqlite.is_some());
         assert!(db.postgres.is_none());
@@ -769,12 +790,10 @@ mod tests {
         let store = StoreEntry {
             driver: "postgres".to_string(),
             url: "postgres://user:pass@localhost/ladon".to_string(),
-            migrate: true,
-            connect_timeout_secs: 10,
             max_connections: 5,
         };
         let table = default_table();
-        let err = build_db_config(Some(store), "ladon", &table).unwrap_err();
+        let err = build_db_config(store, "ladon", &table).unwrap_err();
         let msg = err.to_string();
         assert!(
             msg.contains("pg") || msg.contains("postgres"),
@@ -791,12 +810,10 @@ mod tests {
         let store = StoreEntry {
             driver: "postgres".to_string(),
             url: "postgres://user:pass@localhost/ladon".to_string(),
-            migrate: true,
-            connect_timeout_secs: 10,
             max_connections: 5,
         };
         let table = default_table();
-        let db = build_db_config(Some(store), "ladon", &table).unwrap();
+        let db = build_db_config(store, "ladon", &table).unwrap();
         db.validate().unwrap();
         assert!(db.postgres.is_some());
         assert!(db.sqlite.is_none());
@@ -807,24 +824,12 @@ mod tests {
         let store = StoreEntry {
             driver: "mysql".to_string(),
             url: "mysql://localhost/db".to_string(),
-            migrate: true,
-            connect_timeout_secs: 10,
             max_connections: 1,
         };
         let table = default_table();
-        let err = build_db_config(Some(store), "my_store", &table).unwrap_err();
+        let err = build_db_config(store, "my_store", &table).unwrap_err();
         assert!(err.to_string().contains("unsupported driver"));
         assert!(err.to_string().contains("mysql"));
-    }
-
-    #[test]
-    fn build_db_config_missing_store_defaults_to_sqlite() {
-        let table = default_table();
-        let db = build_db_config(None, "ladon", &table).unwrap();
-        db.validate().unwrap();
-        assert!(db.sqlite.is_some());
-        assert!(db.postgres.is_none());
-        assert_eq!(db.sqlite.as_ref().unwrap().path, "data/ladon/addresses.db");
     }
 
     #[test]
@@ -832,7 +837,16 @@ mod tests {
         let mut table = default_table();
         table.name = "addresses; DROP TABLE addresses".to_string();
 
-        let err = build_db_config(None, "ladon", &table).unwrap_err();
+        let err = build_db_config(
+            StoreEntry {
+                driver: "sqlite".to_string(),
+                url: "sqlite://data/ladon/addresses.db".to_string(),
+                max_connections: 1,
+            },
+            "ladon",
+            &table,
+        )
+        .unwrap_err();
         let msg = err.to_string();
         assert!(msg.contains("ladon.table.name"), "{msg}");
         assert!(msg.contains("SQL identifier"), "{msg}");
@@ -859,20 +873,16 @@ mod tests {
     #[test]
     fn ladon_namespace_allows_known_fields() {
         let toml_str = r#"
-            enabled = true
             store = "mystore"
 
             [derive]
-            format = "csv"
-            strength = 24
-            account = 0
-            change = 0
-            num = 5
-            encrypt = false
-            chains = []
             [derive.secret]
             kind = "env"
             var = "MY_MNEMONIC"
+
+            [[derive.chains]]
+            name = "evm"
+            chain = "ethereum-mainnet"
 
             [pool]
             target = 500
@@ -892,7 +902,6 @@ mod tests {
             created_at = "ts"
         "#;
         let ladon: LadonNamespace = toml::from_str(toml_str).unwrap();
-        assert!(ladon.enabled);
         assert_eq!(ladon.store, "mystore");
         assert!(ladon.derive.is_some());
         assert!(ladon.pool.is_some());
@@ -925,9 +934,14 @@ mod tests {
 
             [[ladon.derive.chains]]
             name = "evm"
+            chain = "ethereum-mainnet"
+
+            [chains.ethereum-mainnet]
+            caip2 = "eip155:1"
 
             [ladon.pool]
             target = 100
+            threshold = 50
 
             [ladon.table]
             name = "test_addrs"
@@ -969,12 +983,29 @@ mod tests {
         let path = dir.join(format!("ladon-test-ignore-{}.toml", std::process::id()));
 
         let toml = r#"
+            [stores.ladon]
+            driver = "sqlite"
+            url = "sqlite://data/test.db"
+
+            [ladon]
+            store = "ladon"
+
             [ladon.derive.secret]
             kind = "env"
             var = "LADON_MNEMONIC"
 
             [[ladon.derive.chains]]
             name = "evm"
+            chain = "ethereum-mainnet"
+
+            [ladon.pool]
+            target = 10
+            threshold = 5
+            batch = 5
+            interval_secs = 1
+
+            [chains.ethereum-mainnet]
+            caip2 = "eip155:1"
 
             [pano.server]
             enabled = true
@@ -1054,12 +1085,29 @@ mod tests {
 
         unsafe { std::env::set_var("LADON_TEST_MNEMONIC_VAR", "MY_MNEMONIC_VAR_NAME") };
         let toml = r#"
+            [stores.ladon]
+            driver = "sqlite"
+            url = "sqlite://data/test.db"
+
+            [ladon]
+            store = "ladon"
+
             [ladon.derive.secret]
             kind = "env"
             var = "${LADON_TEST_MNEMONIC_VAR}"
 
             [[ladon.derive.chains]]
             name = "evm"
+            chain = "ethereum-mainnet"
+
+            [ladon.pool]
+            target = 10
+            threshold = 5
+            batch = 5
+            interval_secs = 1
+
+            [chains.ethereum-mainnet]
+            caip2 = "eip155:1"
         "#;
         std::fs::write(&path, toml).unwrap();
         let cfg = load(&path).unwrap();
@@ -1084,12 +1132,29 @@ mod tests {
 
         unsafe { std::env::remove_var("LADON_NONEXISTENT_FOR_TEST") };
         let toml = r#"
+            [stores.ladon]
+            driver = "sqlite"
+            url = "sqlite://data/test.db"
+
+            [ladon]
+            store = "ladon"
+
             [ladon.derive.secret]
             kind = "env"
             var = "${LADON_NONEXISTENT_FOR_TEST:-DEFAULT_MNEMONIC_VAR}"
 
             [[ladon.derive.chains]]
             name = "evm"
+            chain = "ethereum-mainnet"
+
+            [ladon.pool]
+            target = 10
+            threshold = 5
+            batch = 5
+            interval_secs = 1
+
+            [chains.ethereum-mainnet]
+            caip2 = "eip155:1"
         "#;
         std::fs::write(&path, toml).unwrap();
         let cfg = load(&path).unwrap();
@@ -1104,17 +1169,27 @@ mod tests {
     }
 
     #[test]
-    fn load_sqlite_default_when_no_store_defined() {
+    fn load_rejects_missing_shared_store() {
         let dir = std::env::temp_dir();
         let path = dir.join(format!("ladon-test-no-store-{}.toml", std::process::id()));
 
         let toml = r#"
+            [ladon]
+            store = "missing"
+
             [ladon.derive.secret]
             kind = "env"
             var = "LADON_MNEMONIC"
 
             [[ladon.derive.chains]]
             name = "evm"
+            chain = "ethereum-mainnet"
+
+            [ladon.pool]
+            target = 10
+            threshold = 5
+            batch = 5
+            interval_secs = 1
 
             [ladon.table]
             name = "my_table"
@@ -1129,12 +1204,136 @@ mod tests {
             created_at = "created_at"
         "#;
         std::fs::write(&path, toml).unwrap();
-        let cfg = load(&path).unwrap();
+        let result = load(&path);
         let _ = std::fs::remove_file(&path);
 
-        assert!(cfg.database.sqlite.is_some());
-        assert!(cfg.database.postgres.is_none());
-        assert_eq!(cfg.database.sqlite.as_ref().unwrap().table.name, "my_table");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("[stores]"));
+    }
+
+    #[test]
+    fn check_reports_only_non_secret_configuration() {
+        let path =
+            std::env::temp_dir().join(format!("ladon-test-check-{}.toml", std::process::id()));
+        unsafe { std::env::set_var("LADON_TEST_CHECK_SECRET", "must-not-appear") };
+        std::fs::write(
+            &path,
+            r#"
+            [stores.ladon]
+            driver = "sqlite"
+            url = "sqlite://data/test.db"
+
+            [ladon]
+            store = "ladon"
+
+            [ladon.derive.secret]
+            kind = "env"
+            var = "LADON_TEST_CHECK_SECRET"
+
+            [[ladon.derive.chains]]
+            name = "evm"
+            chain = "ethereum-mainnet"
+
+            [ladon.pool]
+            target = 10
+            threshold = 5
+            batch = 5
+            interval_secs = 1
+
+            [chains.ethereum-mainnet]
+            caip2 = "eip155:1"
+            "#,
+        )
+        .unwrap();
+
+        let report = check(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        unsafe { std::env::remove_var("LADON_TEST_CHECK_SECRET") };
+
+        assert_eq!(report.store_driver, "sqlite");
+        assert!(!format!("{report:?}").contains("must-not-appear"));
+    }
+
+    #[test]
+    fn load_rejects_inline_postgres_credentials_before_connection() {
+        let path =
+            std::env::temp_dir().join(format!("ladon-test-pg-secret-{}.toml", std::process::id()));
+        std::fs::write(
+            &path,
+            r#"
+            [stores.ladon]
+            driver = "postgres"
+            url = "postgres://user:password@host/ladon"
+
+            [ladon]
+            store = "ladon"
+
+            [ladon.derive.secret]
+            kind = "env"
+            var = "LADON_MNEMONIC"
+
+            [[ladon.derive.chains]]
+            name = "evm"
+            chain = "ethereum-mainnet"
+
+            [ladon.pool]
+            target = 10
+            threshold = 5
+            batch = 5
+            interval_secs = 1
+
+            [chains.ethereum-mainnet]
+            caip2 = "eip155:1"
+            "#,
+        )
+        .unwrap();
+        let error = load(&path).unwrap_err();
+        let _ = std::fs::remove_file(&path);
+
+        assert!(error.to_string().contains("environment reference"));
+        assert!(!error.to_string().contains("password"));
+    }
+
+    #[test]
+    fn check_accepts_complete_universal_config_without_secret_output() {
+        let path =
+            std::env::temp_dir().join(format!("ladon-universal-{}.toml", std::process::id()));
+        unsafe { std::env::set_var("LADON_TEST_UNIVERSAL_SECRET", "not-in-report") };
+        std::fs::write(
+            &path,
+            r#"
+[stores.shared]
+driver = "sqlite"
+url = "sqlite://data/ladon.db"
+max_connections = 1
+
+[chains.ethereum-mainnet]
+caip2 = "eip155:1"
+
+[ladon]
+store = "shared"
+
+[ladon.derive.secret]
+kind = "env"
+var = "LADON_TEST_UNIVERSAL_SECRET"
+
+[[ladon.derive.chains]]
+name = "evm"
+chain = "ethereum-mainnet"
+
+[ladon.pool]
+target = 10
+threshold = 5
+batch = 5
+interval_secs = 1
+"#,
+        )
+        .unwrap();
+        let report = check(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        unsafe { std::env::remove_var("LADON_TEST_UNIVERSAL_SECRET") };
+        assert_eq!(report.store_driver, "sqlite");
+        assert!(!format!("{report:?}").contains("not-in-report"));
     }
 
     #[test]
@@ -1179,7 +1378,7 @@ mod tests {
         let toml = r#"
             [stores.ladon]
             driver = "postgres"
-            url = "postgres://user:pass@localhost:5432/ladon"
+            url = "${LADON_TEST_DATABASE_URL}"
 
             [ladon]
             store = "ladon"
@@ -1190,10 +1389,27 @@ mod tests {
 
             [[ladon.derive.chains]]
             name = "evm"
+            chain = "ethereum-mainnet"
+
+            [ladon.pool]
+            target = 10
+            threshold = 5
+            batch = 5
+            interval_secs = 1
+
+            [chains.ethereum-mainnet]
+            caip2 = "eip155:1"
         "#;
+        unsafe {
+            std::env::set_var(
+                "LADON_TEST_DATABASE_URL",
+                "postgres://user:pass@localhost:5432/ladon",
+            )
+        };
         std::fs::write(&path, toml).unwrap();
         let result = load(&path);
         let _ = std::fs::remove_file(&path);
+        unsafe { std::env::remove_var("LADON_TEST_DATABASE_URL") };
         assert!(
             result.is_ok(),
             "Should accept postgres with feature: {:?}",
@@ -1213,6 +1429,13 @@ mod tests {
             [chains.eth]
             caip2 = "eip155:1"
 
+            [stores.ladon]
+            driver = "sqlite"
+            url = "sqlite://data/test.db"
+
+            [ladon]
+            store = "ladon"
+
             [ladon.derive.secret]
             kind = "env"
             var = "LADON_MNEMONIC"
@@ -1220,6 +1443,12 @@ mod tests {
             [[ladon.derive.chains]]
             name = "evm"
             chain = "eth"
+
+            [ladon.pool]
+            target = 10
+            threshold = 5
+            batch = 5
+            interval_secs = 1
         "#;
         std::fs::write(&path, toml).unwrap();
         let cfg = load(&path).unwrap();
@@ -1240,6 +1469,13 @@ mod tests {
             [chains.eth]
             caip2 = "eip155:1"
 
+            [stores.ladon]
+            driver = "sqlite"
+            url = "sqlite://data/test.db"
+
+            [ladon]
+            store = "ladon"
+
             [ladon.derive.secret]
             kind = "env"
             var = "LADON_MNEMONIC"
@@ -1247,6 +1483,12 @@ mod tests {
             [[ladon.derive.chains]]
             name = "evm"
             chain = "imaginary"
+
+            [ladon.pool]
+            target = 10
+            threshold = 5
+            batch = 5
+            interval_secs = 1
         "#;
         std::fs::write(&path, toml).unwrap();
         let result = load(&path);
@@ -1267,6 +1509,10 @@ mod tests {
         ));
 
         let toml = r#"
+            [stores.ladon]
+            driver = "sqlite"
+            url = "sqlite://data/test.db"
+
             [ladon.derive.secret]
             kind = "env"
             var = "LADON_MNEMONIC"
@@ -1279,12 +1525,18 @@ mod tests {
         let result = load(&path);
         let _ = std::fs::remove_file(&path);
 
-        assert!(result.is_ok(), "Empty shared chain reference is optional");
+        assert!(result.is_err(), "Shared chain references are required");
     }
 
     #[test]
     fn chain_start_index_defaults_to_zero() {
-        let chain: ChainConfig = toml::from_str(r#"name = "evm""#).unwrap();
+        let chain: ChainConfig = toml::from_str(
+            r#"
+            name = "evm"
+            chain = "ethereum-mainnet"
+            "#,
+        )
+        .unwrap();
         assert_eq!(chain.start_index, 0);
     }
 
@@ -1293,6 +1545,7 @@ mod tests {
         let chain: ChainConfig = toml::from_str(
             r#"
             name = "solana"
+            chain = "solana-mainnet"
             start_index = 1
             "#,
         )

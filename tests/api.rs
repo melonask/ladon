@@ -33,49 +33,37 @@ fn path_and_index_helpers_are_strict() {
 }
 
 #[test]
-fn chain_aliases_normalise_to_supported_chains() {
-    for alias in ["evm", "ethereum", "eip155", "eip155:1", "eip155:8453"] {
-        assert_eq!(canonical_chain(alias).unwrap(), "evm");
+fn only_canonical_chain_names_are_accepted() {
+    for chain in ["evm", "btc", "solana"] {
+        assert_eq!(canonical_chain(chain).unwrap(), chain);
     }
     for alias in [
-        "btc",
+        "ethereum",
+        "eip155:1",
         "bitcoin",
         "bip122",
-        "bip122:000000000019d6689c085ae165831e93",
+        "solana:mainnet",
     ] {
-        assert_eq!(canonical_chain(alias).unwrap(), "btc");
+        assert!(canonical_chain(alias).is_err());
     }
-    for alias in ["solana", "solana:mainnet", "solana:devnet"] {
-        assert_eq!(canonical_chain(alias).unwrap(), "solana");
-    }
-    assert!(canonical_chain("cosmos:cosmoshub-4").is_err());
 }
 
 #[test]
-fn derive_accepts_caip2_chain_aliases() {
-    let evm = derive(Params {
-        chain: "eip155:1".into(),
-        mnemonic: Some(MNEMONIC.into()),
-        ..Default::default()
-    })
-    .unwrap();
-    assert_eq!(evm.chain, "evm");
-
-    let btc = derive(Params {
-        chain: "bip122:000000000019d6689c085ae165831e93".into(),
-        mnemonic: Some(MNEMONIC.into()),
-        ..Default::default()
-    })
-    .unwrap();
-    assert_eq!(btc.chain, "btc");
-
-    let solana = derive(Params {
-        chain: "solana:mainnet".into(),
-        mnemonic: Some(MNEMONIC.into()),
-        ..Default::default()
-    })
-    .unwrap();
-    assert_eq!(solana.chain, "solana");
+fn derive_rejects_caip2_chain_aliases() {
+    for chain in [
+        "eip155:1",
+        "bip122:000000000019d6689c085ae165831e93",
+        "solana:mainnet",
+    ] {
+        assert!(
+            derive(Params {
+                chain: chain.into(),
+                mnemonic: Some(MNEMONIC.into()),
+                ..Default::default()
+            })
+            .is_err()
+        );
+    }
 }
 
 #[test]
@@ -137,6 +125,21 @@ fn explicit_generators_match_top_level_derivation() {
             .unwrap()
             .address,
         sol.keys[0].address
+    );
+}
+
+#[test]
+fn evm_bip44_address_vector_is_stable() {
+    let wallet = derive(Params {
+        chain: "evm".into(),
+        mnemonic: Some(MNEMONIC.into()),
+        num: 1,
+        ..Default::default()
+    })
+    .unwrap();
+    assert_eq!(
+        wallet.keys[0].address,
+        "0xB8Fd42000d00202DCbCF5e18d6640d656345FD6A"
     );
 }
 

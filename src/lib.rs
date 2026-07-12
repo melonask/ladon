@@ -12,11 +12,19 @@ use zeroize::Zeroize;
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
+/// Offset that marks a BIP-32 child number as hardened.
 pub const HARDENED: u32 = 0x8000_0000;
 
 // ── Public types ─────────────────────────────────────────────────────────────
 
-/// Derivation parameters for [`derive`]. All fields have sensible defaults.
+/// Derivation parameters for [`derive()`]. All fields have sensible defaults.
+///
+/// # Examples
+/// ```
+/// use ladon::{derive, Params};
+/// let wallet = derive(Params { chain: "evm".into(), ..Default::default() })?;
+/// # Ok::<(), anyhow::Error>(())
+/// ```
 #[derive(Clone, Debug, Default)]
 pub struct Params {
     pub chain: String,
@@ -43,7 +51,7 @@ pub struct Params {
     pub program_id: String,
 }
 
-/// A single derived key / address tuple.
+/// A single derived key/address tuple.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct KeyInfo {
     pub index: u32,
@@ -68,7 +76,7 @@ impl Drop for KeyInfo {
     }
 }
 
-/// Full wallet output returned by [`derive`] and all lower-level generators.
+/// Full wallet output returned by [`derive()`] and lower-level generators.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct WalletOutput {
     pub mnemonic: String,
@@ -79,7 +87,7 @@ pub struct WalletOutput {
     pub keys: Vec<KeyInfo>,
 }
 
-/// On-disk envelope produced by [`encrypt_data`], consumed by [`decrypt_data`].
+/// Serialized envelope produced by [`encrypt_data`] and consumed by [`decrypt_data`].
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct EncryptedWallet {
     pub version: u32,
@@ -90,7 +98,11 @@ pub struct EncryptedWallet {
 
 // ── Top-level API ─────────────────────────────────────────────────────────────
 
-/// Generate one or more keys / addresses. Single entry-point for programmatic use.
+/// Generate one or more keys and addresses.
+///
+/// # Errors
+/// Returns an error for an unsupported chain, invalid secret material, invalid
+/// derivation input, or invalid requested key source.
 pub fn derive(p: Params) -> Result<WalletOutput> {
     let chain = canonical_chain(&p.chain)?;
 
@@ -137,22 +149,15 @@ pub fn derive(p: Params) -> Result<WalletOutput> {
     )
 }
 
-/// Convert supported chain aliases, including CAIP-2-style identifiers, to Ladon's canonical names.
+/// Validate and return a canonical Ladon chain name.
+///
+/// # Errors
+/// Returns an error unless `chain` is `evm`, `btc`, or `solana`.
 pub fn canonical_chain(chain: &str) -> Result<String> {
-    let s = chain.trim().to_lowercase();
-    let s = if s.is_empty() { "evm" } else { &s };
-
-    if s == "evm" || s == "ethereum" || s == "eip155" || s.starts_with("eip155:") {
-        return Ok("evm".to_string());
+    match chain {
+        "evm" | "btc" | "solana" => Ok(chain.to_owned()),
+        _ => anyhow::bail!("Unsupported canonical chain `{chain}`; use evm, btc, or solana"),
     }
-    if s == "btc" || s == "bitcoin" || s == "bip122" || s.starts_with("bip122:") {
-        return Ok("btc".to_string());
-    }
-    if s == "solana" || s.starts_with("solana:") {
-        return Ok("solana".to_string());
-    }
-
-    anyhow::bail!("Unsupported chain '{chain}'. Use: evm/eip155, btc/bip122, solana")
 }
 
 // ── Path helpers ──────────────────────────────────────────────────────────────
@@ -160,8 +165,8 @@ pub fn canonical_chain(chain: &str) -> Result<String> {
 /// Return the default BIP-44 derivation base path for `chain`.
 pub fn default_path(chain: &str, account: u32, change: u32, _hw_sim: bool) -> String {
     match chain {
-        "evm" | "ethereum" => format!("m/44'/60'/{account}'/{change}/0"),
-        "btc" | "bitcoin" => format!("m/44'/0'/{account}'/{change}/0"),
+        "evm" => format!("m/44'/60'/{account}'/{change}/0"),
+        "btc" => format!("m/44'/0'/{account}'/{change}/0"),
         "solana" => format!("m/44'/501'/{account}'/{change}'"),
         _ => format!("m/44'/60'/{account}'/{change}/0"),
     }
@@ -188,7 +193,10 @@ pub fn child_path(base: &str, index: u32, chain: &str) -> String {
     }
 }
 
-/// Parse a derivation-path string into a sequence of BIP-32 child indexes.
+/// Parse a derivation-path string into BIP-32 child indexes.
+///
+/// # Errors
+/// Returns an error for malformed or out-of-range path segments.
 pub fn parse_path(path: &str) -> Result<Vec<u32>> {
     let trimmed = path
         .strip_prefix("m/")
@@ -220,7 +228,10 @@ pub fn parse_path(path: &str) -> Result<Vec<u32>> {
         .collect()
 }
 
-/// Parse a comma-separated index / range list into a `Vec<u32>`.
+/// Parse a comma-separated index/range list into a vector.
+///
+/// # Errors
+/// Returns an error for empty tokens, malformed indexes, or descending ranges.
 pub fn parse_indexes(s: &str) -> Result<Vec<u32>> {
     s.split(',')
         .flat_map(|raw| {
@@ -262,7 +273,10 @@ pub fn parse_indexes(s: &str) -> Result<Vec<u32>> {
 
 // ── Seed-based generation ─────────────────────────────────────────────────────
 
-/// Parse or generate a mnemonic.
+/// Parse a supplied mnemonic or generate a 12- or 24-word English mnemonic.
+///
+/// # Errors
+/// Returns an error if a supplied mnemonic is invalid or entropy generation fails.
 pub fn mnemonic_for(raw: Option<String>, strength: u32) -> Result<Mnemonic> {
     match raw {
         Some(s) => {
@@ -281,6 +295,10 @@ pub fn mnemonic_for(raw: Option<String>, strength: u32) -> Result<Mnemonic> {
 }
 
 #[allow(clippy::too_many_arguments)]
+/// Derive wallet material from BIP-39 seed bytes.
+///
+/// # Errors
+/// Returns an error when paths, indexes, network settings, or chain inputs are invalid.
 pub fn derive_from_seed(
     seed: &[u8],
     base_path: &str,
@@ -339,6 +357,10 @@ pub fn derive_from_seed(
 
 // ── xpub / xpriv derivation ───────────────────────────────────────────────────
 
+/// Derive watch-only addresses from a BIP-32 extended public key.
+///
+/// # Errors
+/// Returns an error for Ed25519 chains, malformed xpubs, or invalid child indexes.
 pub fn derive_from_xpub(
     xpub_str: &str,
     base: &str,
@@ -394,6 +416,10 @@ pub fn derive_from_xpub(
 }
 
 #[allow(clippy::too_many_arguments)]
+/// Derive keys from a BIP-32 or SLIP-0010 extended private key.
+///
+/// # Errors
+/// Returns an error for malformed key material, invalid indexes, or unsupported chains.
 pub fn derive_from_xpriv(
     xpriv_str: &str,
     base: &str,
@@ -495,6 +521,10 @@ pub fn derive_from_xpriv(
 
 // ── Per-chain key generators ──────────────────────────────────────────────────
 
+/// Derive one EVM key from a seed and derivation path.
+///
+/// # Errors
+/// Returns an error if the path or derived key is invalid.
 pub fn derive_evm(seed: &[u8], path: &str, idx: u32) -> Result<KeyInfo> {
     let secp = bitcoin::secp256k1::Secp256k1::new();
     let child = secp_key(seed, path, NetworkKind::Main)?;
@@ -514,6 +544,10 @@ pub fn derive_evm(seed: &[u8], path: &str, idx: u32) -> Result<KeyInfo> {
     })
 }
 
+/// Derive one native-SegWit Bitcoin key from a seed and derivation path.
+///
+/// # Errors
+/// Returns an error if the path or derived key is invalid.
 pub fn derive_btc(seed: &[u8], path: &str, idx: u32, network: Network) -> Result<KeyInfo> {
     let secp = bitcoin::secp256k1::Secp256k1::new();
     let child = secp_key(seed, path, network_kind(network))?;
@@ -537,6 +571,10 @@ pub fn derive_btc(seed: &[u8], path: &str, idx: u32, network: Network) -> Result
     })
 }
 
+/// Derive one Solana key using hardened SLIP-0010 path segments.
+///
+/// # Errors
+/// Returns an error for an invalid path or PDA program identifier.
 pub fn derive_solana(
     seed: &[u8],
     path: &str,
@@ -567,6 +605,9 @@ pub fn derive_solana(
 // ── Cryptographic primitives ──────────────────────────────────────────────────
 
 /// Derive a secp256k1 extended private key at `path` from `seed`.
+///
+/// # Errors
+/// Returns an error for invalid BIP-32 paths or key material.
 pub fn secp_key(seed: &[u8], path: &str, network: NetworkKind) -> Result<Xpriv> {
     let secp = bitcoin::secp256k1::Secp256k1::new();
     let master = Xpriv::new_master(network, seed).context("Master key creation failed")?;
@@ -577,7 +618,10 @@ pub fn secp_key(seed: &[u8], path: &str, network: NetworkKind) -> Result<Xpriv> 
         .context("Key derivation failed")
 }
 
-/// SLIP-0010 Ed25519 derivation from `seed` over a hardened `path`.
+/// Perform SLIP-0010 Ed25519 derivation from `seed` over a hardened `path`.
+///
+/// # Errors
+/// Returns an error if any path component is not hardened.
 pub fn derive_slip10(seed: &[u8], path: &[u32]) -> Result<[u8; 64]> {
     use hmac::{KeyInit, Mac};
 
@@ -605,7 +649,10 @@ pub fn derive_slip10(seed: &[u8], path: &[u32]) -> Result<[u8; 64]> {
     Ok(i)
 }
 
-/// Derive a single hardened SLIP-0010 child from `parent` (key + chain code).
+/// Derive one hardened SLIP-0010 child from `parent` key and chain code.
+///
+/// # Errors
+/// Returns an error if `child_index` is not hardened.
 pub fn slip10_child(parent: &[u8; 64], child_index: u32) -> Result<[u8; 64]> {
     use hmac::{KeyInit, Mac};
 
@@ -623,21 +670,17 @@ pub fn slip10_child(parent: &[u8; 64], child_index: u32) -> Result<[u8; 64]> {
 }
 
 /// Compute an EIP-55 checksummed Ethereum address from an uncompressed public key.
+///
+/// # Panics
+/// Panics if `pubkey_uncompressed` has no prefix byte.
 pub fn eth_address(pubkey_uncompressed: &[u8]) -> String {
-    use tiny_keccak::{Hasher, Keccak};
+    use sha3::{Digest, Keccak256};
 
-    let mut hash = [0u8; 32];
-    let mut k = Keccak::v256();
-    k.update(&pubkey_uncompressed[1..]);
-    k.finalize(&mut hash);
+    let hash = Keccak256::digest(&pubkey_uncompressed[1..]);
 
     let addr_hex = hex::encode(&hash[12..]);
 
-    let mut cs_hash = [0u8; 32];
-    let mut k2 = Keccak::v256();
-    k2.update(addr_hex.as_bytes());
-    k2.finalize(&mut cs_hash);
-    let cs = hex::encode(cs_hash);
+    let cs = hex::encode(Keccak256::digest(addr_hex.as_bytes()));
 
     let mut out = String::with_capacity(42);
     out.push_str("0x");
@@ -659,8 +702,12 @@ pub fn eth_address(pubkey_uncompressed: &[u8]) -> String {
 
 // ── Encryption / decryption ───────────────────────────────────────────────────
 
-/// Encrypt a UTF-8 string with AES-256-GCM (key derived via scrypt).
-/// Returns a JSON-serialised [`EncryptedWallet`].
+/// Encrypt UTF-8 data with AES-256-GCM using a scrypt-derived key.
+///
+/// Returns a JSON-serialized [`EncryptedWallet`].
+///
+/// # Errors
+/// Returns an error if key derivation, encryption, or serialization fails.
 pub fn encrypt_data(data: &str, password: &str) -> Result<String> {
     use aes_gcm::{Aes256Gcm, KeyInit, aead::Aead};
     use base64::Engine;
@@ -690,7 +737,11 @@ pub fn encrypt_data(data: &str, password: &str) -> Result<String> {
     .context("Serialisation of encrypted wallet failed")
 }
 
-/// Decrypt an [`EncryptedWallet`] with AES-256-GCM and return the plaintext.
+/// Decrypt an [`EncryptedWallet`] with AES-256-GCM and return UTF-8 plaintext.
+///
+/// # Errors
+/// Returns an error for unsupported envelopes, malformed encoding, a bad password,
+/// failed authentication, or non-UTF-8 plaintext.
 pub fn decrypt_data(enc: &EncryptedWallet, password: &str) -> Result<String> {
     use aes_gcm::{Aes256Gcm, KeyInit, aead::Aead};
     use base64::Engine;
