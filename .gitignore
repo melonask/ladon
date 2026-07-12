@@ -4,3 +4,6 @@
 .env
 *.enc.json
 *.json
+/docs/node_modules/
+/docs/.vitepress/cache/
+/docs/.vitepress/dist/
