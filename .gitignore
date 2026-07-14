@@ -4,6 +4,7 @@
 .env
 *.enc.json
 *.json
+!/docs/package.json
 !/docs/package-lock.json
 /docs/node_modules/
 /docs/.vitepress/cache/
