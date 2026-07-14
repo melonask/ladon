@@ -113,7 +113,7 @@ pub fn derive(p: Params) -> Result<WalletOutput> {
         let base = p
             .xpriv_path
             .unwrap_or_else(|| base.trim_end_matches("/0").to_string());
-        return derive_from_xpriv(
+        return derive_from_xpriv_with_network(
             &xpriv_str,
             &base,
             p.index,
@@ -122,6 +122,7 @@ pub fn derive(p: Params) -> Result<WalletOutput> {
             &p.solana_mode,
             &p.program_id,
             &p.indexes,
+            &p.network,
         );
     }
 
@@ -129,7 +130,7 @@ pub fn derive(p: Params) -> Result<WalletOutput> {
         let base = p
             .xpub_path
             .unwrap_or_else(|| base.trim_end_matches("/0").to_string());
-        return derive_from_xpub(&xpub_str, &base, p.index, num, &chain);
+        return derive_from_xpub_with_network(&xpub_str, &base, p.index, num, &chain, &p.network);
     }
 
     let mnemonic = mnemonic_for(p.mnemonic, p.strength)?;
@@ -156,7 +157,9 @@ pub fn derive(p: Params) -> Result<WalletOutput> {
 pub fn canonical_chain(chain: &str) -> Result<String> {
     match chain {
         "evm" | "btc" | "solana" => Ok(chain.to_owned()),
-        _ => anyhow::bail!("Unsupported canonical chain `{chain}`; use evm, btc, or solana"),
+        _ => anyhow::bail!(
+            "Unsupported canonical chain `{chain}`; accepted canonical names: evm, btc, solana"
+        ),
     }
 }
 
@@ -322,7 +325,9 @@ pub fn derive_from_seed(
                 "evm" | "ethereum" => derive_evm(seed, &path, idx),
                 "btc" | "bitcoin" => derive_btc(seed, &path, idx, btc_network),
                 "solana" => derive_solana(seed, &path, idx, solana_mode, program_id),
-                other => anyhow::bail!("Unsupported chain '{other}'. Use: evm, btc, solana"),
+                other => anyhow::bail!(
+                    "Unsupported chain '{other}'. Use canonical names evm, btc, solana; accepted aliases: ethereum (evm), bitcoin (btc)"
+                ),
             }
         })
         .collect::<Result<Vec<_>>>()?;
@@ -368,11 +373,27 @@ pub fn derive_from_xpub(
     num: u32,
     chain: &str,
 ) -> Result<WalletOutput> {
+    derive_from_xpub_with_network(xpub_str, base, specific_index, num, chain, "bitcoin")
+}
+
+/// Derive watch-only addresses from a BIP-32 extended public key on `network`.
+///
+/// # Errors
+/// Returns an error for Ed25519 chains, malformed xpubs, or invalid child indexes.
+pub fn derive_from_xpub_with_network(
+    xpub_str: &str,
+    base: &str,
+    specific_index: Option<u32>,
+    num: u32,
+    chain: &str,
+    network: &str,
+) -> Result<WalletOutput> {
     if is_ed25519(chain) {
         anyhow::bail!("xpub mode is not supported for {chain} (Ed25519 curve)");
     }
 
     let xpub = parse_xpub(xpub_str)?;
+    let btc_network = bitcoin_network(network);
     let secp = bitcoin::secp256k1::Secp256k1::new();
     let indices = resolve_indices(&None, specific_index, num)?;
 
@@ -380,7 +401,8 @@ pub fn derive_from_xpub(
         .iter()
         .map(|&idx| {
             let path = format!("{}/{idx}", base.trim_end_matches('/'));
-            let child = xpub.ckd_pub(&secp, ChildNumber::from_normal_idx(idx)?)?;
+            let mut child = xpub.ckd_pub(&secp, ChildNumber::from_normal_idx(idx)?)?;
+            child.network = network_kind(btc_network);
             let pk_bytes = child.public_key.serialize_uncompressed();
             let address = match chain {
                 "evm" | "ethereum" => eth_address(&pk_bytes),
@@ -388,7 +410,7 @@ pub fn derive_from_xpub(
                     let cpk =
                         bitcoin::CompressedPublicKey::from_slice(&child.public_key.serialize())
                             .expect("valid compressed pk");
-                    bitcoin::Address::p2wpkh(&cpk, bitcoin::Network::Bitcoin).to_string()
+                    bitcoin::Address::p2wpkh(&cpk, btc_network).to_string()
                 }
                 other => anyhow::bail!("xpub mode not supported for '{other}'"),
             };
@@ -430,6 +452,35 @@ pub fn derive_from_xpriv(
     program_id: &str,
     indexes: &Option<String>,
 ) -> Result<WalletOutput> {
+    derive_from_xpriv_with_network(
+        xpriv_str,
+        base,
+        specific_index,
+        num,
+        chain,
+        solana_mode,
+        program_id,
+        indexes,
+        "bitcoin",
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+/// Derive keys from a BIP-32 or SLIP-0010 extended private key on `network`.
+///
+/// # Errors
+/// Returns an error for malformed key material, invalid indexes, or unsupported chains.
+pub fn derive_from_xpriv_with_network(
+    xpriv_str: &str,
+    base: &str,
+    specific_index: Option<u32>,
+    num: u32,
+    chain: &str,
+    solana_mode: &str,
+    program_id: &str,
+    indexes: &Option<String>,
+    network: &str,
+) -> Result<WalletOutput> {
     let indices = resolve_indices(indexes, specific_index, num)?;
 
     let keys = if is_ed25519(chain) {
@@ -465,12 +516,14 @@ pub fn derive_from_xpriv(
     } else {
         let secp = bitcoin::secp256k1::Secp256k1::new();
         let parent = Xpriv::from_str(xpriv_str).context("Invalid BIP32 xpriv")?;
+        let btc_network = bitcoin_network(network);
 
         indices
             .iter()
             .map(|&idx| {
                 let path = format!("{}/{idx}", base.trim_end_matches('/'));
-                let child = parent.derive_priv(&secp, &[ChildNumber::from_normal_idx(idx)?])?;
+                let mut child = parent.derive_priv(&secp, &[ChildNumber::from_normal_idx(idx)?])?;
+                child.network = network_kind(btc_network);
                 let mut priv_key = child.to_priv();
                 priv_key.compressed = true;
                 let pub_key = priv_key.public_key(&secp);
@@ -487,8 +540,7 @@ pub fn derive_from_xpriv(
                     "btc" | "bitcoin" => {
                         let cpk = bitcoin::CompressedPublicKey::from_slice(&pub_compressed)
                             .expect("valid pk");
-                        let addr =
-                            bitcoin::Address::p2wpkh(&cpk, bitcoin::Network::Bitcoin).to_string();
+                        let addr = bitcoin::Address::p2wpkh(&cpk, btc_network).to_string();
                         let wif = priv_key.to_wif();
                         (addr, wif.clone(), Some(wif))
                     }

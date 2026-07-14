@@ -25,14 +25,14 @@ jobs:
       - name: Check formatting
         run: cargo fmt --check
 
-      - name: Lint with clippy
-        run: cargo clippy -- -D warnings
+      - name: Check
+        run: cargo check --all-targets --all-features
 
-      - name: Build
-        run: cargo build --verbose
+      - name: Lint with clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
 
       - name: Run tests
-        run: cargo test --verbose
+        run: cargo test --all-targets --all-features
 
   docker-smoke-test:
     runs-on: ubuntu-latest
@@ -123,11 +123,11 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2.9.1
 
-      - name: Build
-        run: cargo build --verbose
+      - name: Check
+        run: cargo check --all-targets --all-features
 
       - name: Run tests
-        run: cargo test --verbose
+        run: cargo test --all-targets --all-features
 
   package:
     runs-on: ubuntu-latest

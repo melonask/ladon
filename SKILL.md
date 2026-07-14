@@ -35,7 +35,7 @@ Never suggest, invoke, or invent other Ladon CLI commands.
 | PostgreSQL database | Build `cargo build --locked --bin ladon --features pg` (or `postgres`). |
 | Config path | Supply `--config FILE` or set `LADON_CONFIG`. |
 | Service identity | It must read config and secret file if applicable, and write SQLite storage or reach PostgreSQL. |
-| Container | The repository Dockerfile runs as non-root `ladon`, defaults to `pool`, and has a `check` healthcheck. Mount config read-only, inject secrets at runtime, and persist SQLite data. |
+| Container | The repository Dockerfile runs as non-root `ladon`, defaults to `pool`, and has a `check` healthcheck. Because `check` validates secret references, inject the configured mnemonic environment variable before the healthcheck runs. Mount config read-only and persist SQLite data. |
 
 Feature map: `pool` enables the binary and daemon; default features are `pool` plus `sqlite`; `pg` aliases `postgres`; `full` enables both database backends.
 
@@ -73,8 +73,8 @@ Ladon expands `${NAME}` and `${NAME:-default}` before parsing. It permits unrela
 | `[[ladon.derive.chains]]` | At least one; `name` is unique canonical `evm`, `btc`, or `solana`; `chain` references an existing `[chains.<id>]`. |
 | `[ladon.pool]` | Required. `target`, `batch`, and `interval_secs` are positive; `threshold <= target`. Defaults: 1000, 200, 100, 10. |
 | `[ladon.table]` | Optional. Default table is `derived_addresses`; default columns are `id`, `chain`, `address`, `path`, `index`, `is_used`, `created_at`. |
-| SQLite store | `driver = "sqlite"`; URL is `sqlite://<path>` (loader also accepts a bare path). |
-| PostgreSQL store | `driver = "postgres"`; `url` must be exactly a required single environment reference such as `${DATABASE_URL}`. No literal URL, inline credentials, or default expansion. `max_connections` defaults to 5. |
+| SQLite store | `driver = "sqlite"`; URL is `sqlite://<path>` (loader also accepts a bare path). SQLite always uses one connection; do not configure `max_connections`. |
+| PostgreSQL store | `driver = "postgres"`; `url` must be exactly a required single environment reference such as `${DATABASE_URL}`. No literal URL, inline credentials, or default expansion. `max_connections` is PostgreSQL-only and defaults to 5. |
 
 | Secret kind | Configuration | Validation / use |
 | --- | --- | --- |

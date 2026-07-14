@@ -77,7 +77,6 @@ created_at = "created_at"
 [stores.ladon]
 driver = "sqlite"
 url = "sqlite://data/ladon/addresses.db"
-max_connections = 1
 
 # ── Shared chain references ──────────────────────────────────────────────────────
 [chains.ethereum-mainnet]
@@ -92,4 +91,4 @@ caip2 = "solana:mainnet"
 # [stores.ladon]
 # driver = "postgres"
 # url must be a required DATABASE_URL environment reference.
-# max_connections = 5
+# max_connections = 5 # PostgreSQL only; SQLite always uses one connection.

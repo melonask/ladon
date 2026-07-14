@@ -6,7 +6,6 @@ Ladon reads its namespace from a universal TOML file. Every local chain requires
 [stores.ladon]
 driver = "sqlite"
 url = "sqlite://data/ladon/addresses.db"
-max_connections = 1
 [chains.ethereum-mainnet]
 caip2 = "eip155:1"
 [ladon]
@@ -27,4 +26,4 @@ batch = 100
 interval_secs = 10
 ```
 
-Secrets use `env`, `xpriv_env`, or `file`. PostgreSQL requires `url = "${DATABASE_URL}"`; inline credentials and defaults are rejected. Environment substitutions support `${NAME}` and `${NAME:-default}`, except PostgreSQL URLs which must be one required variable. Table and column names accept only ASCII SQL identifiers; this is the dynamic-SQL trust boundary.
+Secrets use `env`, `xpriv_env`, or `file`. PostgreSQL requires `url = "${DATABASE_URL}"`; inline credentials and defaults are rejected. Environment substitutions support `${NAME}` and `${NAME:-default}`, except PostgreSQL URLs which must be one required variable. `max_connections` is PostgreSQL-only (SQLite always uses one connection). Table and column names accept only ASCII SQL identifiers; this is the dynamic-SQL trust boundary.

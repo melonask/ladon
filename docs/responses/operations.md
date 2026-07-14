@@ -6,7 +6,7 @@ Validates TOML shape, store selection, chain references, pool bounds, SQL identi
 
 ## `pool`
 
-Runs until stopped. Each successful refill emits structured stderr logs:
+Runs until stopped. Each successful refill emits structured stderr logs similar to the illustrative output below; timestamps, module prefixes, and other tracing fields vary with configuration:
 
 ```text
 INFO Pool daemon started target=1000 threshold=200 batch=100 interval_secs=10

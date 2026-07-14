@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "==> cargo fmt --all"
-cargo fmt --all
-git add -u
-echo "     Formatting applied."
+echo "==> cargo fmt --check"
+cargo fmt --check
+echo "     Formatting verified."
 
-echo "==> cargo clippy -- -D warnings"
-cargo clippy -- -D warnings
+echo "==> cargo check --all-targets --all-features"
+cargo check --all-targets --all-features
+echo "     Check passed."
+
+echo "==> cargo clippy --all-targets --all-features -- -D warnings"
+cargo clippy --all-targets --all-features -- -D warnings
 echo "     Lint with clippy."
 
-echo "==> cargo test"
-cargo test
+echo "==> cargo test --all-targets --all-features"
+cargo test --all-targets --all-features
 echo "     Tests passed."

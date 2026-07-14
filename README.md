@@ -36,7 +36,7 @@ cargo build --locked --release --bin ladon
 
 For PostgreSQL, build with `cargo build --locked --release --bin ladon --features pg`.
 
-The repository includes a `Dockerfile` that builds with `full`, runs as the unprivileged `ladon` user, sets `LADON_CONFIG=/etc/ladon/Config.toml`, and starts `pool` by default. `deploy/docker-compose.yml` is an operational example. Mount configuration read-only, inject secrets at runtime, and use durable writable storage when SQLite is selected.
+The repository includes a `Dockerfile` that builds with `full`, runs as the unprivileged `ladon` user, sets `LADON_CONFIG=/etc/ladon/Config.toml`, and starts `pool` by default. Its `check` healthcheck also validates the configured secret reference, so the referenced mnemonic environment variable must be injected into the container. `deploy/docker-compose.yml` is an operational example. Mount configuration read-only, inject secrets at runtime, and use durable writable storage when SQLite is selected.
 
 ## Quick start
 
