@@ -13,11 +13,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Cache dependencies before copying source.
 COPY Cargo.toml Cargo.lock ./
 RUN mkdir -p src && echo 'fn main(){}' > src/main.rs && touch src/lib.rs \
-    && cargo build --release --locked --bin ladon \
+    && cargo build --release --locked --features full --bin ladon \
     && rm -rf src
 
 COPY src/ src/
-RUN cargo build --release --locked --bin ladon
+# The dependency-cache build uses a dummy binary. Refresh every Rust source
+# input after copying the real crate so Cargo always rebuilds the application.
+RUN find src -type f -name '*.rs' -exec touch {} + \
+    && cargo build --release --locked --features full --bin ladon
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 FROM debian:bookworm-slim AS runtime

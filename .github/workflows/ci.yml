@@ -34,6 +34,80 @@ jobs:
       - name: Run tests
         run: cargo test --verbose
 
+  docker-smoke-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - name: Build and smoke-test Docker image
+        run: |
+          docker build --no-cache --tag ladon:ci .
+          docker run --rm ladon:ci --help | grep --fixed-strings 'Fast multi-chain HD wallet CLI and address-pool daemon'
+
+          config_dir="$(mktemp --directory)"
+          trap 'rm -rf "$config_dir"' EXIT
+          cat > "$config_dir/sqlite.toml" <<'EOF'
+          [stores.ladon]
+          driver = "sqlite"
+          url = "sqlite:///tmp/ladon.db"
+
+          [chains.ethereum-mainnet]
+          caip2 = "eip155:1"
+
+          [ladon]
+          store = "ladon"
+
+          [ladon.derive.secret]
+          kind = "env"
+          var = "LADON_MNEMONIC"
+
+          [[ladon.derive.chains]]
+          name = "evm"
+          chain = "ethereum-mainnet"
+
+          [ladon.pool]
+          target = 10
+          threshold = 5
+          batch = 5
+          interval_secs = 1
+          EOF
+          cat > "$config_dir/postgres.toml" <<'EOF'
+          [stores.ladon]
+          driver = "postgres"
+          url = "${DATABASE_URL}"
+
+          [chains.ethereum-mainnet]
+          caip2 = "eip155:1"
+
+          [ladon]
+          store = "ladon"
+
+          [ladon.derive.secret]
+          kind = "env"
+          var = "LADON_MNEMONIC"
+
+          [[ladon.derive.chains]]
+          name = "evm"
+          chain = "ethereum-mainnet"
+
+          [ladon.pool]
+          target = 10
+          threshold = 5
+          batch = 5
+          interval_secs = 1
+          EOF
+
+          docker run --rm \
+            --env LADON_MNEMONIC='abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about' \
+            --volume "$config_dir/sqlite.toml:/tmp/config.toml:ro" \
+            ladon:ci --config /tmp/config.toml check | grep --fixed-strings 'configuration valid: store_driver=sqlite'
+          docker run --rm \
+            --env LADON_MNEMONIC='abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about' \
+            --env DATABASE_URL='postgres://ladon:ladon@localhost:5432/ladon' \
+            --volume "$config_dir/postgres.toml:/tmp/config.toml:ro" \
+            ladon:ci --config /tmp/config.toml check | grep --fixed-strings 'configuration valid: store_driver=postgres'
+
   test-msrv:
     runs-on: ubuntu-latest
     strategy:
